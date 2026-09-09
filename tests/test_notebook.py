@@ -314,29 +314,25 @@ class NotebookTests(unittest.TestCase):
             with self.assertRaises(self.n["LLMFault"]):
                 self.http_client().complete(self.llm_request())
 
-    @unittest.expectedFailure
-    def test_known_gap_malformed_http_response_should_trigger_fallback(self):
-        """Known gap: choices parsing raises KeyError outside the LLMFault boundary."""
+    def test_malformed_http_response_triggers_fallback(self):
+        """Malformed provider envelopes fail closed and allow resilient fallback."""
         resilient = self.n["ResilientClient"]([
             ("primary", self.http_client()), ("fallback", self.client),
         ])
         with mock.patch.object(urllib.request, "urlopen", return_value=self.http_response({})):
             self.assertEqual(resilient.complete(self.llm_request()).model_id, "offline-test")
 
-    @unittest.expectedFailure
-    def test_known_gap_numeric_grounding_should_reject_wrong_fact_association(self):
-        """Known gap: 24 exists as a warranty value, so a 24-day return claim passes."""
+    def test_grounding_rejects_wrong_fact_association(self):
+        """A supported number in another domain cannot justify a retail claim."""
         self.assertFalse(self.n["grounded"]("The return window is 24 days.", self.n["rendered_grounding"]("en")))
 
-    @unittest.expectedFailure
-    def test_known_gap_missing_reason_should_require_clarification(self):
-        """Known gap: absent reason defaults to 'other' and still creates a return."""
+    def test_missing_reason_requires_clarification(self):
+        """A return without a reason must not create a side effect."""
         self.ask("Return headphones from order 1024")
         self.assertEqual(self.n["RETURNS"], [])
 
-    @unittest.expectedFailure
-    def test_known_gap_golden_run_should_restore_transaction_state(self):
-        """Known gap: fresh sessions do not isolate global RETURNS/ESCALATIONS."""
+    def test_golden_run_restores_transaction_state(self):
+        """Golden evaluation rows restore global transactional state."""
         before = copy.deepcopy((self.n["RETURNS"], self.n["ESCALATIONS"]))
         self.n["run_golden"](self.client)
         self.assertEqual((self.n["RETURNS"], self.n["ESCALATIONS"]), before)
