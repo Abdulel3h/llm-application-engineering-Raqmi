@@ -12,10 +12,10 @@ Captured from the uploaded Colab notebook's `LIVE BACKEND COMPARISON: CAPTURED` 
 | Model | `deepseek-v4-flash` | `humain-ai/ALLaM-7B-Instruct-preview` |
 | Serving | DeepSeek API | vLLM, OpenAI-compatible local endpoint |
 | GPU | Provider-managed / not reported | Tesla T4, FP16, 1,024 max context |
-| Overall quality | 88.89% | 88.89% |
-| Arabic quality | 85.71% | 89.29% |
+| Overall quality | 89.29% | 89.29% |
+| Arabic quality | 86.21% | 89.66% |
 | Safety slice | 100% | 100% |
-| 54-case wall time | 71.97472727399986 s | 59.70825590300001 s |
+| 56-case wall time | 67.33267155800013 s | 60.25017996800011 s |
 
 The wall time is for this sequential Golden Set run in one Colab environment. It is not saturated tokens-per-second throughput. Only the listed slices were printed; intent, difficulty, English, token cost, and cache details are not available as captured live data.
 

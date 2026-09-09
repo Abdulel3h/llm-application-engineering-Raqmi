@@ -24,7 +24,7 @@ Exact matching keeps personalized and near-miss retail questions from sharing a 
 
 ## ADR-006 — Open-weight ALLaM for Arabic-first evaluation
 
-ALLaM was served behind vLLM so the same application boundary could compare a local open-weight route with DeepSeek. In the captured 54-case run it matched overall quality, had a higher Arabic aggregate, and finished faster. That observation is limited to the measured environment and does not establish global superiority.
+ALLaM was served behind vLLM so the same application boundary could compare a local open-weight route with DeepSeek. In the captured 56-case run it matched overall quality, had a higher Arabic aggregate, and finished faster. That observation is limited to the measured environment and does not establish global superiority.
 
 ## ADR-007 — Explicit live opt-in during finalization
 
@@ -36,4 +36,4 @@ The historical `ask()` path dispatches application tools after model routing and
 
 ## Trade-off recorded
 
-The final packaging favors a small, reproducible default and preserved evaluated evidence over a large refactor of the working notebook. That leaves known defects—numeric-only grounding, state accumulation during evaluation, and missing live native-tool/judge evidence—visible for submission review instead of changing behavior and silently invalidating the historical comparison.
+The final packaging favors a small, reproducible default and preserved evaluated evidence over a large refactor of the working notebook. Three safe boundary fixes were applied after capture—malformed provider responses now fail closed, numeric grounding checks the claimed domain, and Golden evaluation restores transactional state. Missing live native-tool/judge evidence remains documented instead of being inferred from offline tests.

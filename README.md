@@ -14,7 +14,7 @@ An Arabic-first retail-support application that answers store questions, handles
 
 Retail support mixes repeatable policy questions with actions that affect a customer's account. Fluent answers alone are insufficient: prices need evidence, order access needs authorization, and uncertain requests need a human path.
 
-Raqmi separates these responsibilities using a router, a provider-independent `LLMClient`, Pydantic validation, and guarded application tools. Its catalogue, orders, users, and return records are fictional, in-memory capstone data. Arabic comes first because customers use Arabic product names and colloquial requests as well as English; the Golden Set contains 28 Arabic and 26 English cases.
+Raqmi separates these responsibilities using a router, a provider-independent `LLMClient`, Pydantic validation, and guarded application tools. Its catalogue, orders, users, and return records are fictional, in-memory capstone data. Arabic comes first because customers use Arabic product names and colloquial requests as well as English; the Golden Set contains 29 Arabic and 27 English cases.
 
 ## Capabilities and architecture
 
@@ -59,7 +59,7 @@ Text equivalent: normalize → input guard → model-assisted intent router → 
 | Tool Calling | The captured router dispatches Python tools. A separate [native tool-calling extension](TOOL_CALLING.md) handles model-emitted requests and a bounded loop; it was added after the live capture. |
 | Authorization | `Session.authorize_order()` checks ownership in deterministic application code outside the LLM token stream. The session identity is supplied by the application. |
 | Output Guard | Suppresses the exact prompt canary. Numeric grounding is a separate, narrow check; neither is a general factuality or data-loss detector. |
-| Evaluation Harness | Runs `ask()` against the 54-case Golden Set; reports language, intent, difficulty, risk, overall, and high-risk pass rates. |
+| Evaluation Harness | Runs `ask()` against the 56-case Golden Set; reports language, intent, difficulty, risk, overall, and high-risk pass rates. |
 | Regression Gate | Requires the high-risk slice to remain 100% and blocks slice drops greater than five percentage points; the seeded degraded prompt is rejected. |
 | Cost / Latency / Cache | Scenario benchmark with an exact-response cache and simulated prefix-token reuse. Cache is demonstrated separately from `ask()`. |
 | Fallback | `ResilientClient` is tested with scripted 429/outage faults. The captured live comparison uses individual providers directly. |
@@ -77,16 +77,16 @@ These are preserved measurements from the uploaded Colab notebook, section 16, c
 
 | Metric | DeepSeek | ALLaM/vLLM |
 |---|---:|---:|
-| Overall Quality | 88.89% | 88.89% |
-| Arabic | 85.71% | 89.29% |
+| Overall Quality | 89.29% | 89.29% |
+| Arabic | 86.21% | 89.66% |
 | Safety (high-risk case pass rate) | 100% | 100% |
-| Golden Set Wall Time | 71.97s | 59.71s |
+| Golden Set Wall Time | 67.33s | 60.25s |
 
 Models: `deepseek-v4-flash` and `humain-ai/ALLaM-7B-Instruct-preview`. ALLaM was served locally using vLLM on a Tesla T4 in Google Colab, with FP16, a 1,024-token context limit, and eager mode.
 
-**For this Golden Set and this environment, ALLaM matched overall quality, performed better on the Arabic slice, and completed the evaluation faster.** This single sequential experiment does not establish general model superiority. Overall quality is this harness's exact-case pass rate; safety covers 22 high-risk cases, including successful authorized returns.
+**For this Golden Set and this environment, ALLaM matched overall quality, performed better on the Arabic slice, and completed the evaluation faster.** This single sequential experiment does not establish general model superiority. Overall quality is this harness's exact-case pass rate; safety covers 24 high-risk cases, including successful authorized returns.
 
-Separately, the **deterministic harness** captured 54/54 cases passed, 32/32 attacks blocked, 0/32 legitimate requests blocked, and a blocked degraded prompt. Its κ = 1.00, approximately 93.4% scenario cost reduction, and approximately 65.9% simulated prefix-cache ratio are not live-provider measurements. See [the report](EVALUATION_REPORT.md) for limitations.
+Separately, the **deterministic harness** captured 56/56 cases passed, 32/32 attacks blocked, 0/32 legitimate requests blocked, and a blocked degraded prompt. Its κ = 1.00, approximately 93.4% scenario cost reduction, and approximately 65.9% simulated prefix-cache ratio are not live-provider measurements. See [the report](EVALUATION_REPORT.md) for limitations.
 
 ## Run in Google Colab
 
@@ -120,7 +120,7 @@ python -m unittest discover -s tests -v
 python scripts/scan_secrets.py
 ```
 
-The validator runs the notebook's default path with external access blocked and checks preserved outputs. Tests cover the original safety/evaluation behavior and the optional native tool protocol. Known defects are explicitly reported, rather than counted as repaired. The scanner checks working files, notebook content/outputs/metadata, and reachable Git blobs without printing credential values.
+The validator runs the notebook's default path with external access blocked and checks preserved outputs. Tests cover the safety/evaluation behavior, provider-boundary fault handling, state isolation, and the optional native tool protocol. The scanner checks working files, notebook content/outputs/metadata, and reachable Git blobs without printing credential values.
 
 ## Evidence and remaining work
 
@@ -131,6 +131,6 @@ The validator runs the notebook's default path with external access blocked and 
 - [SOURCE_PROVENANCE.md](SOURCE_PROVENANCE.md): why the final notebook was selected and what changed after capture.
 - [TOOL_CALLING.md](TOOL_CALLING.md): optional native protocol and its validation scope.
 
-The repository is technically honest about incomplete rubric evidence: independent live judge calibration, native-tool provider execution and extraction rates by language, complete captured live slices, measured real cache/cost data, semantic caching, and measured-throughput self-host break-even remain outstanding. The original blocked-intent slice has six cases, below the rubric's eight-case minimum; it was not altered to improve compliance. Fresh Colab verification and owner approval of expectations remain manual submission steps.
+The repository is technically honest about incomplete rubric evidence: independent live judge calibration, native-tool provider execution and extraction rates by language, complete captured live slices, measured real cache/cost data, semantic caching, and measured-throughput self-host break-even remain outstanding. Fresh Colab verification and owner approval of expectations remain manual submission steps.
 
 Requirements were checked against the [official capstone](https://mohammadyusif.github.io/llm-application-engineering/capstone.html) and [course material](https://mohammadyusif.github.io/llm-application-engineering/) on 9 September 2026. The programme's [SDAIA Academy GitHub](https://github.com/SDAIAAcademy) is linked for context. See the rubric map for the distinction between demonstrated behavior and missing evidence.

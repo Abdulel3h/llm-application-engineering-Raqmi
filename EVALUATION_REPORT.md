@@ -1,88 +1,97 @@
 # Raqmi evaluation report
 
-This report separates the earlier live-provider capture from deterministic and simulated measurements. The uploaded executed notebook is the source of truth. Local validation compiles and runs the default no-key path with network and process operations blocked; it does not rerun DeepSeek, vLLM, or a GPU.
+The latest uploaded executed notebook, `Raqmi_Capstone_ALLaM_vLLM_FIXED(1).ipynb`, is the source of truth. This report separates **its captured results** from **post-capture offline verification**. Local tests do not rerun DeepSeek, ALLaM, vLLM or a GPU, and the saved live metrics do not validate subsequent code fixes. See [source provenance](SOURCE_PROVENANCE.md).
 
-## Evaluation goals
+## Goals and dataset
 
-The harness checks whether an Arabic-first retail assistant can answer grounded policy and catalogue questions, protect order ownership, validate return requests, refuse prompt injection, escalate uncertainty, and survive bounded provider faults. It also checks regression behavior and reports cost/cache instrumentation.
+Evaluation checks bilingual retail answers, intent routing, order ownership, return validation, refusals, escalation and fault handling. The Golden harness calls the actual `ask()` pipeline. A row passes when its expected blocked flag, intent and required answer substring match; this is an exact-case metric, not a comprehensive factual-quality score.
 
-## Dataset and slices
+| Dimension | Latest Golden Set counts |
+|---|---|
+| Total / language | **56** / Arabic **29**, English **27** |
+| Intent | FAQ 13; order status 14; return request 12; escalation 9; blocked 8 |
+| Difficulty | Easy 12; medium 16; hard 28 |
+| Risk | Low 11; medium 21; high 24 |
 
-The unchanged Golden Set has 54 cases: 28 Arabic and 26 English. It covers FAQ, order status, return requests, blocked/authorization cases, and human escalation. Difficulty counts are easy 12, medium 16, hard 26; risk counts are low 11, medium 21, high 22. The high-risk slice is deliberately oversampled.
+All marginal strata now contain at least eight cases. The latest upload adds one Arabic and one English blocked case to the prior capture, leaving all prior case expectations unchanged. This change and the new live run came from the user's new source artifact; the finalization agent did not alter labels or thresholds to improve results.
 
-The rubric requires every intent stratum to contain at least eight cases. The historical `blocked` intent has six, while the other intent strata have at least eight. The set was not edited after evaluation to make this requirement appear complete.
+The separate guard datasets contain 32 bilingual attacks and 32 legitimate requests, including deliberate traps with words such as “instructions” and “system.” Safety is oversampled in the Golden Set. Its reported safety denominator is **all 24 high-risk cases**, including authorized returns; it is different from the 32-case attack block rate. Expectations are author-defined and should be reviewed by the owner before submission.
 
-The attack corpus has 32 bilingual injection cases. The legitimate corpus has 32 bilingual requests, including phrases containing “instructions,” “system,” and other deliberate traps.
+## Captured deterministic results
 
-## Deterministic harness results
-
-These results come from the `RuleBasedClient` and deterministic application guards in notebook sections 9–15 and 17–18. They are repeatable offline checks, not live provider measurements.
-
-| Check | Captured result | Evidence |
+| Check | Latest captured result | Notebook section / cell ID |
 |---|---:|---|
-| Attack cases blocked | 32/32 = 100% | §10, cell `52ef9833` |
-| Legitimate cases blocked | 0/32 = 0% false positives | §10, cell `52ef9833` |
-| Golden Set cases passed | 54/54 = 100% | §12, cell `cf88d2d3` |
-| Arabic / English Golden slices | 100% / 100% | §12, cell `cf88d2d3` |
-| High-risk safety slice | 22/22 = 100% | §12, cell `cf88d2d3` |
-| Judge scaffold agreement / κ | 100% / 1.00, n=40 | §13, cell `b4666e9b` |
-| Clean regression candidate | PASS | §14, cell `2a6b7cbc` |
-| Seeded degraded FAQ candidate | BLOCK | §14, cell `2a6b7cbc` |
+| Attacks blocked | 32/32 = 100% | §10 / `52ef9833` |
+| Legitimate prompts blocked | 0/32 = 0% false positives | §10 / `52ef9833` |
+| Golden Set passed | 56/56 = 100% | §12 / `cf88d2d3` |
+| Arabic / English slices | 100% / 100% | §12 / `cf88d2d3` |
+| High-risk safety slice | 24/24 = 100% | §12 / `cf88d2d3` |
+| Synthetic judge agreement / κ | 100% / 1.00, n=40 | §13 / `b4666e9b` |
+| Clean / degraded regression candidate | PASS / BLOCK | §14 / `2a6b7cbc` |
 
-The safety denominator is all 22 high-risk cases, including authorized return actions as well as refusals. It must be read together with the separate 32-case attack block rate.
+These use deterministic guards and `RuleBasedClient`. The judge is a **calibration-plumbing scaffold**: ten synthetic label/support tuples repeated four times, with expected scores passed through metadata and echoed. There are no independent answer/evidence judgments by a live model. Its κ=1.00 does not establish calibrated LLM judgment.
 
-The judge result is a calibration-plumbing scaffold, not an actual calibrated LLM judge. Ten synthetic label/support tuples are repeated four times; `RuleBasedClient` receives the expected score through metadata and echoes it. No independent annotator labels and no live judge outputs were captured. The reported κ must not be used as evidence that a production judge is calibrated.
+The regression gate is deterministic and does not use this judge. It checks language, intent, difficulty, risk and safety slices. The degraded prompt claims a 30-day return window; it fails the FAQ slice and is blocked. In the new capture the degraded Arabic/English pass rates are 0.7586206896551724 and 0.7777777777777778; clean slices are 1.0.
 
-The regression gate compares language, intent, difficulty, risk, and safety slices. The seeded `faq.v0-degraded` prompt claims a 30-day return window and is blocked by the gate. The Golden Set and thresholds remain unchanged.
+## Captured LIVE comparison — latest upload
 
-## Preserved LIVE provider comparison
-
-The following exact aggregates were captured in the uploaded Colab run with `RUN_LIVE_GOLDEN=True`. They were not recomputed locally.
+Both providers ran the same 56-case set with `RUN_LIVE_GOLDEN=True`. These exact values are preserved from §16, cell `238a9f1b`:
 
 | Metric | DeepSeek | ALLaM/vLLM |
 |---|---:|---:|
 | Mode | LIVE | LIVE |
 | Model | `deepseek-v4-flash` | `humain-ai/ALLaM-7B-Instruct-preview` |
-| Overall quality | 0.8888888888888888 (88.89%) | 0.8888888888888888 (88.89%) |
-| Arabic slice | 0.8571428571428571 (85.71%) | 0.8928571428571429 (89.29%) |
-| Safety slice | 1.0 (100%) | 1.0 (100%) |
-| Golden Set wall time | 71.97472727399986 s (≈71.97 s) | 59.70825590300001 s (≈59.71 s) |
+| Overall quality | 0.8928571428571429 (**89.29%**) | 0.8928571428571429 (**89.29%**) |
+| Arabic | 0.8620689655172413 (**86.21%**) | 0.896551724137931 (**89.66%**) |
+| High-risk safety | 1.0 (**100%**) | 1.0 (**100%**) |
+| Golden Set wall time | 67.33267155800013 s (**67.33 s**) | 60.25017996800011 s (**60.25 s**) |
 
-ALLaM was served locally through the OpenAI-compatible vLLM endpoint on a Tesla T4 in Google Colab. The readiness output identifies the model and the provider-binding output identifies both routes. An ALLaM router smoke test returned `order_status` over HTTP.
+ALLaM ran through a local OpenAI-compatible vLLM endpoint on a Tesla T4 in Colab, with FP16, 1,024-token context and eager mode. The upload captures model readiness, provider binding and a successful ALLaM router smoke test.
 
-The defensible conclusion is limited to this Golden Set and this environment: ALLaM matched DeepSeek in overall quality, scored higher on the Arabic aggregate, and completed the measured sequential evaluation faster. This is not a global model ranking.
+**For this Golden Set and environment, ALLaM matched overall quality, scored higher on the Arabic aggregate, and completed the sequential evaluation faster.** This is not a global model ranking or a measured economic advantage.
 
-The captured live cell printed only overall quality, Arabic quality, safety, and total wall time. It did not persist per-case rows, full intent/difficulty/risk slices, live token cost, or live prompt-cache usage. Those values are unavailable from the artifact and are not reconstructed here. Live extraction pass rates by language and a live native tool-call transcript are also absent.
+Each provider passes 50/56 cases under the exact-case harness, so six live rows fail for each provider. The capture does not persist failed-case identities or per-case predictions, so those six rows cannot be diagnosed from the saved aggregate. The two added blocked cases terminate in the input guard before a model call. The result is limited to this Golden Set and environment.
 
-## Tool and authorization evaluation
+The latest capture prints overall, Arabic, high-risk safety and wall time only. It does not persist per-case predictions, failed-case identities, full intent/difficulty/risk live slices, token cost or real cache ratios. Those values are not invented or attributed to this run. Live model-extraction pass rates and native tool-call transcripts are also absent.
 
-The historical application has three application-dispatched tools: `lookup_order` (read-only), `create_return` (side-effecting), and `escalate_to_human` (terminal). Session ownership is checked by deterministic code outside the model. The captured negative tests reject cross-user reads, cross-user returns, and wrong-item returns and log risk class plus iteration.
+## Colab execution and compatibility evidence
 
-The historical `ask()` flow dispatches tools directly after routing. The OpenAI-compatible adapter sends only system/user messages and reads assistant text; it does not send tool schemas or consume provider `tool_calls`. Return extraction parses candidate fields in Python before calling the model and ignores the returned extraction text. The optional [native tool protocol](TOOL_CALLING.md) adds a strict, bounded, locally tested implementation after the live capture; it does not upgrade these historical results.
+The latest bootstrap (`d1f953e3`) captures vLLM installation, TorchAudio repair, successful CUDA-13 checks in a fresh subprocess, and `ALLaM/vLLM READY`. However, the notebook-kernel diagnostic (`da57f2b3`) reports PyTorch CUDA 13.0 versus TorchAudio CUDA 12.8. The subsequent ALLaM smoke and live comparison succeed. The artifact is consistent with a working new server process while stale package state remains in the notebook kernel; this is an explanation, not proof that every compatibility check passed.
 
-## Guard and output limitations
+The captured harness is execution count 30 and the live comparison count 31, after the four-part demo count 29. The artifact does **not** prove a single fresh, uninterrupted top-to-bottom run. Preserve the warning and perform a fresh final Colab verification before submission.
 
-Input normalization and regex guardrails are effective on the finite corpus, but no finite corpus proves general prompt-injection immunity. The output canary detector is exact and the grounding check is intentionally numeric and narrow. It can miss wrong associations, such as a return-window claim using a number that appears elsewhere in the catalogue. Missing return reasons currently default to `other`; the historical code therefore can create a return when a stricter policy would ask for clarification.
+## Tools, safety and post-capture verification
 
-The harness comment says each case gets fresh state, but global `RETURNS` and `ESCALATIONS` are not restored between rows. The row verdict still checks response fields and safety, but side-effect isolation is a known defect and is covered as an expected failure in local tests.
+The captured application dispatches Python tools after routing. `lookup_order`, `create_return` and `escalate_to_human` span read-only, side-effecting and terminal risk classes. Ownership and product membership are checked by application code using the authenticated session. The saved negative tests reject cross-user reads, cross-user returns and wrong-item returns, with risk/iteration logs.
 
-## Cost, latency, and cache evidence
+Historical return extraction parses and validates local fields before making a model call whose extraction response is ignored. It is not a captured model validate → retry → repair workflow. The separate [native tool module](TOOL_CALLING.md) implements a model-requested protocol after capture; its tests use mocked responses. It is not integrated into the captured `ask()`/Golden evaluation, and no live-provider validation is claimed.
 
-The notebook's scenario benchmark runs 100 repeated FAQ requests:
+Four regression tests originally exposed actual defects. Their failure was **not intentional** and was not an accepted demonstration scenario. The finalization work addresses the application rather than relaxing assertions or changing Golden expectations:
 
-| Scenario | Requests | Model calls | Cache hits | Cost (scenario USD) | p50 latency |
-|---|---:|---:|---:|---:|---:|
-| Before exact response cache | 100 | 100 | 0 | 0.0275655 | 5.004 ms |
-| After exact response cache | 100 | 5 | 95 | 0.0018245 | 0.2 ms |
+| Regression test | Actual defect | Intentional? | Correction / verification status |
+|---|---|---|---|
+| `test_malformed_http_response_triggers_fallback` | Malformed successful HTTP responses could escape as parsing errors rather than boundary faults. | No | Map malformed response shapes to `LLMFault`; full test suite PASS. |
+| `test_grounding_rejects_wrong_fact_association` | A number present elsewhere in the catalogue could incorrectly justify a different retail fact. | No | Check domain-specific numeric relationships; full test suite PASS. The detector remains narrow. |
+| `test_missing_reason_requires_clarification` | An absent return reason defaulted to `other`, allowing action without clarification. | No | Require a supplied reason before creating a return; full test suite PASS. |
+| `test_golden_run_restores_transaction_state` | Global return/escalation stores leaked evaluation side effects between cases and after a run. | No | Restore state per case and in failure cleanup; full test suite PASS. |
 
-It prints 93.4% cost reduction beside a 100.0% deterministic Golden Set verdict. The prices (`$2.00/$8.00` per million commercial input/output tokens and `$0.35/$1.00` open-weight scenario equivalents), cache discount, and response-cache latency are assumptions in a deterministic benchmark, not invoices or live provider billing.
+The preserved live scores describe the pre-fix implementation. Any final passing local result belongs to the amended application and must be kept separate from those scores.
 
-The prefix-cache proof prints a 65.9% cached-input ratio from `RuleBasedClient` usage fields. That client synthesizes a warm-prefix proportion; it is not a DeepSeek or vLLM cache measurement. The exact-cache near-miss test prints 0/5 wrong key collisions. The cache key includes model, prompt version, normalized text, language, and sampling parameters, but not a grounding/policy revision, and the cache is exercised in the benchmark rather than integrated into `ask()`. There is no measured semantic-cache tier.
+Post-capture verification ran the offline notebook validator and the full 52-test suite: **52/52 passed**, including the four former regression gaps. The validator compiled and executed all 26 code cells with network/process operations blocked, confirmed deterministic 56/56 and 24/24 high-risk results, and verified that the saved live comparison, outputs and execution counts were unchanged. No live provider or GPU was rerun locally.
 
-## Reliability evidence
+## Cost, cache and reliability
 
-The scripted fault drill captures two 429 failures followed by a successful retry, and a primary outage followed by an open-weight fallback. These are deterministic `RuleBasedClient` faults, not production incidents. The live clients registered in the captured comparison are direct HTTP adapters; the live comparison itself is not wrapped by `ResilientClient`.
+The latest captured deterministic FAQ scenario reports before/after costs of **0.0275655 / 0.0018245 scenario USD**, 100/5 model calls, 0/95 exact-cache hits, and approximately **5.006 / 0.2 ms** p50 latency. Its **93.4% saving** is printed next to a **100% deterministic Golden verdict**. Prices, token estimates, cache discount and cache-hit latency are assumptions; they are not billed provider usage. The Golden verdict does not itself test the cached path.
 
-## Limitations and submission actions
+The **65.9% prefix-cache ratio** is synthesized by `RuleBasedClient`. The exact-cache near-miss result is **0/5 key collisions**. No real provider cache-ratio proof or calibrated semantic-cache tier is captured. The cache is benchmark-only and its historical key omits a grounding/policy revision. See [BENCHMARKS.md](BENCHMARKS.md) for the full methodology and remaining economic evidence.
 
-The remaining evidence gaps are: live judge calibration; live language-split extraction/repair rates; native model-requested tools against a provider; the six-case blocked-intent stratum; complete live slices and cost; real provider cache usage; measured semantic-cache threshold; and measured GPU throughput/self-host break-even. The final Colab runtime must be restarted and run top-to-bottom by the owner after reviewing these gaps. No result in this report claims that work was completed when it was not.
+The scripted reliability drill captures two 429 failures followed by success and an outage followed by the open-weight fallback. The four-part demo captures a grounded answer, return action, refusal and fallback. These faults and demos use deterministic clients; the live provider comparison uses direct adapters and does not exercise real provider failover.
+
+## Known limitations and submission classification
+
+- **CRITICAL BEFORE SUBMISSION:** verify the final normal tests and safety suite, secret/history scan, latest-source integrity and no-key default; restart/run the final Colab notebook and review the retained compatibility warning. The rubric does not permit a red safety suite.
+- **ALREADY SATISFIED:** all marginal Golden strata ≥8; Arabic-majority 56-case set; paired 32-attack/32-legitimate guard results; captured 100% high-risk safety; both live providers; deterministic regression, fault and four-part evidence.
+- **DOCUMENTED LIMITATION:** live judge calibration, language-split model extraction/repair, provider-verified native tools, full live slices/costs, real prefix caching, measured semantic-cache threshold, complete attempt metering and measured self-host break-even. Finite guards and domain-specific grounding remain limited detectors.
+- **NICE TO HAVE:** extra isolated stage demonstrations, more detailed per-case transcripts and optional course extensions. They cannot substitute for missing mandatory evidence.
+
+[The rubric map](RUBRIC_MAP.md) ties each requirement to code and captured evidence without self-awarded points.

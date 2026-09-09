@@ -10,8 +10,9 @@ For each request it:
 2. Accepts at most one model-emitted tool call per response and validates its JSON arguments with strict Pydantic schemas (`extra="forbid"`).
 3. Supplies the authenticated `Session` from application state; the model cannot provide or override the user ID.
 4. Executes ownership and product checks before reads or side effects, logs risk class and loop iteration, and passes a sanitized result as a `role: tool` message.
-5. Stops terminal escalation immediately, reuses a completed return result on duplicate replay, and bounds iterations, tool calls, batch size, and transaction side effects.
-6. Sanitizes provider and transport failures into application categories without echoing private exception text.
+5. Requires an application-supplied `allow_return=True` consent boolean for a side-effecting return; model arguments cannot provide that consent.
+6. Stops terminal escalation immediately, reuses a completed return result on duplicate replay, and bounds iterations, tool calls, batch size, and transaction side effects.
+7. Sanitizes provider and transport failures into application categories without echoing private exception text.
 
 The protocol can be exercised with a namespace created from the notebook definitions:
 
@@ -21,10 +22,10 @@ from raqmi_tool_calling import bind_tool_client, ask_with_native_tools
 client = bind_tool_client(namespace, route="commercial")
 reply = ask_with_native_tools(
     "Return the headphones from order 1024 because they are defective",
-    Session("user_123"), namespace=namespace, client=client,
+    Session("user_123"), namespace=namespace, client=client, allow_return=True,
 )
 ```
 
-The test suite scripts provider responses and never sends a real request. It checks tool schemas, tool-result messages, ownership denials, wrong-item denials, malformed/unknown arguments, terminal escalation, duplicate calls, bounded loops, one-return-per-run behavior, sanitized failures, and all three risk classes. It also checks that an untrusted `user_id` argument cannot execute.
+The test suite scripts provider responses and never sends a real request. It checks tool schemas, tool-result messages, ownership denials, wrong-item denials, malformed/unknown arguments, terminal escalation, duplicate calls, bounded loops, one-return-per-run behavior, sanitized failures, application consent for side effects, trusted FAQ templates, and all three risk classes. It also checks that an untrusted `user_id` or model-supplied consent argument cannot execute.
 
 This module was added after the captured DeepSeek/ALLaM comparison. Its offline tests are evidence for the protocol implementation only; they do not change or retroactively validate the notebook's LIVE scores. A final submission claiming full native function-calling coverage still needs a fresh provider-backed transcript and a language-split extraction/repair evaluation.
