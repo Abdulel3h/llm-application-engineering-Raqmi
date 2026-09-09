@@ -1,60 +1,66 @@
 # Raqmi benchmarks
 
-This file keeps live provider measurements separate from deterministic scenario assumptions. The repository does not contain a billing export, a saturated GPU throughput run, or live per-case provider rows.
+Every number here is read from the official executed notebook, `Raqmi_Capstone.ipynb` (SHA-256 `cffa505e0d2289f1654651d79b36b5edc55fe54b3d25003bd88fafea9c6eb345`), captured in one sequential Google Colab run with live DeepSeek and live ALLaM/vLLM.
 
-## LIVE model comparison
+**Captured provider measurements and deterministic scenario assumptions are kept apart throughout. Scenario costs are not provider invoices.**
 
-Captured from the uploaded Colab notebook's `LIVE BACKEND COMPARISON: CAPTURED` output:
+## LIVE Golden Set comparison
 
 | Metric | DeepSeek | ALLaM/vLLM |
 |---|---:|---:|
 | Mode | LIVE | LIVE |
 | Model | `deepseek-v4-flash` | `humain-ai/ALLaM-7B-Instruct-preview` |
-| Serving | DeepSeek API | vLLM, OpenAI-compatible local endpoint |
-| GPU | Provider-managed / not reported | Tesla T4, FP16, 1,024 max context |
-| Overall quality | 89.29% | 89.29% |
-| Arabic quality | 86.21% | 89.66% |
-| Safety slice | 100% | 100% |
-| 56-case wall time | 67.33267155800013 s | 60.25017996800011 s |
+| Overall quality | 0.9107142857142857 (**91.07%**, 51/56) | 0.9107142857142857 (**91.07%**, 51/56) |
+| Arabic slice | 0.896551724137931 (**89.66%**, 26/29) | 0.896551724137931 (**89.66%**, 26/29) |
+| High-risk safety | 1.0 (**100%**, 24/24) | 1.0 (**100%**, 24/24) |
+| Sequential wall time | **60.947293607000006 s** | **63.910626944 s** |
 
-The wall time is for this sequential Golden Set run in one Colab environment. It is not saturated tokens-per-second throughput. Only the listed slices were printed; intent, difficulty, English, token cost, and cache details are not available as captured live data.
+Both providers ran the same 56-case Golden Set in the same Colab session. ALLaM was served locally by vLLM on a Tesla T4 (FP16, 1024-token context, eager mode).
 
-## Deterministic cost and latency scenario
+Wall time is **sequential end-to-end evaluation time**, not saturated throughput: no batching, no concurrency, and DeepSeek's figure includes network latency while ALLaM's includes local GPU inference. It does not support a cost-per-token or break-even claim.
 
-The notebook's 100-request FAQ traffic mix is 35 return-policy questions, 25 delivery questions, 20 headphone-price questions, 10 English return questions, and 10 English delivery questions. It compares repeated calls against an exact response cache.
+### Failed cases
 
-| Metric | Before | After |
-|---|---:|---:|
-| Requests | 100 | 100 |
-| Model calls | 100 | 5 |
-| Exact cache hits | 0 | 95 |
-| Scenario cost | 0.0275655 USD | 0.0018245 USD |
-| p50 latency | 5.004244500019013 ms | 0.2 ms |
-| Cached input ratio in this benchmark | 70.3653% | 43.0841% |
-| Adjacent deterministic Golden verdict | 100.0% | 100.0% |
+Five of 56 cases failed for each provider; **no high-risk case failed for either** (both safety slices 24/24).
 
-The printed cost reduction is 93.4%. The prices are transparent scenario assumptions, not real invoices:
+| Provider | Failed cases | Observed |
+|---|---|---|
+| DeepSeek | كم مدة التوصيل؟ · كم سعر السماعة؟ · كم ضمان الساعة الذكية؟ · How long does delivery take? · Can a defective product be returned? | all routed to `escalate` |
+| ALLaM | كم مدة التوصيل؟ · هل المنتج التالف قابل للإرجاع؟ · كم سعر الشاحن؟ · Can a defective product be returned? · How much is the USB-C charger? | `order_status`, `faq`, `escalate` |
 
-```text
-commercial input  = $2.00 / 1M uncached tokens
-commercial output = $8.00 / 1M tokens
-open-weight input = $0.35 / 1M scenario-equivalent tokens
-open-weight output= $1.00 / 1M scenario-equivalent tokens
-cached input discount = 75%
-```
+All ten are FAQ cases. The harness scores an exact-case match on intent, blocked status and a required substring, so a grounded answer that escalates instead of quoting the number is counted as a failure.
 
-The benchmark's cost row is paired with the deterministic Golden Set verdict in the same cell. It does not prove that a live provider gives the same price, cache hit behavior, or quality after caching.
+## Other LIVE sections
 
-## Prefix and exact cache evidence
+| Section | Captured measurement |
+|---|---|
+| Guard suite | 32/32 attacks blocked (100%); 0/32 legitimate requests blocked (0% false positives) |
+| Five-stage pipeline | same 100% / 0%; 0 of 56 Golden answers changed |
+| Structured output | 20 cases, 10 per language, DeepSeek, 23.79 s; each language 5 first-pass valid, 1 valid after repair, 4 escalated; 10/10 designed outcomes matched; safety invariants PASS |
+| LLM-as-a-Judge | n = 36, agreement 0.778, Cohen's κ 0.667; target 0.60 met; 8 disagreements; not the regression gate |
+| Native tool calling | authorized lookup executed; cross-user lookup denied by authorization; authorized return `returns_created = 1`, `return_id = R-1001`, canonical product `headphones`; total 6.26 s; no tool-call diagnostics recorded |
 
-The prompt-prefix demonstration sends 12 different Arabic questions through `RuleBasedClient` with the same rendered grounding context. It prints `prompt cached-input ratio: 65.9%`. Because the demo client synthesizes its warm-prefix token count, this is instrumentation evidence, not live DeepSeek cache evidence.
+## Deterministic scenario experiments — not provider billing
 
-The exact key contains model ID, prompt version, normalized text, language, and sampling parameters. The five near-miss pairs produce `near-miss wrong hits: 0/5`. The cache is not integrated into `ask()`, the historical key does not include a grounding revision, and no semantic tier has been calibrated on measured data.
+These come from the deterministic harness with transparent, stated assumptions. They are **not** measured provider usage or invoices.
 
-## Fault and fallback timing
+| Scenario measure | Value |
+|---|---:|
+| Requests in the FAQ traffic mix | 100 |
+| Model calls before / after caching | 100 / 5 |
+| Exact-cache hits | 95 |
+| Scenario cost before / after | 0.0275655 / 0.0018245 scenario USD |
+| Scenario cost reduction | **93.4%** |
+| p50 latency before / after | 5.005 ms / 0.2 ms |
+| Evaluation verdict beside the saving | 100% deterministic Golden |
+| Simulated prefix-cache ratio | **65.9%** |
+| Exact-cache near-miss collisions | 0/5 |
 
-The deterministic reliability drill prints two scripted 429 failures then success on the third attempt, and a primary outage served by `openweight-fallback`. Those values are control-flow tests; they are not provider outage rates or production latency.
+Assumed prices: commercial input $2.00 / 1M uncached tokens, output $8.00 / 1M; open-weight input $0.35 / 1M scenario-equivalent, output $1.00 / 1M; cached-input discount 75%. The prefix-cache ratio is synthesized by the deterministic client, not read from provider usage. Latency figures are the deterministic harness's own timings, not provider latency.
 
-## Break-even status
+## What is not measured
 
-The rubric asks for self-host break-even based on measured throughput and both comparisons. The uploaded evidence has only sequential Golden Set wall time and no token throughput, GPU utilization, host price, or provider billing. A defensible break-even number cannot be calculated from this artifact, so this repository leaves that requirement open rather than substituting a vendor figure or a scenario guess. The conditional routing recommendation in [DECISIONS.md](DECISIONS.md) is limited to observed quality and wall time.
+- No provider billing, token accounting from invoices, or measured cache-hit economics.
+- No self-host break-even: that needs saturated throughput, GPU-hour pricing and provider rates, none of which were measured.
+- No calibrated semantic-cache tier; the exact cache is benchmark-only and separate from `ask()`.
+- ALLaM's native tool-call parsing was never exercised; the live tool section targets DeepSeek only.

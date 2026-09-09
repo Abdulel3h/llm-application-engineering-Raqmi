@@ -1,48 +1,51 @@
 # Source provenance
 
-The newest executed notebook supplied by the user is the source of truth. The ZIP is supporting material and is not allowed to replace newer live outputs. No old notebook or model weights are included in this repository.
+## The official notebook
 
-| Inspected input | Finding |
+`Raqmi_Capstone.ipynb` is the owner's **final executed Google Colab run**, copied into this repository byte for byte.
+
+```text
+SHA-256  cffa505e0d2289f1654651d79b36b5edc55fe54b3d25003bd88fafea9c6eb345
+cells    87 (47 code, 40 markdown)
+executed 47/47 code cells, execution counts 1-47 with no gaps
+uploaded Raqmi_Capstone_FINAL_CANDIDATE(2).ipynb
+```
+
+**Every output in it was produced by Google Colab during that live run.** Nothing was generated, regenerated, edited or recomputed locally. The run used live DeepSeek (`deepseek-v4-flash`) and live ALLaM (`humain-ai/ALLaM-7B-Instruct-preview`) served by vLLM on a Tesla T4, and its final cell reports `FINAL SUBMISSION READINESS: PASS`.
+
+`scripts/import_final_notebook.py` performed the adoption: it refuses a notebook with any unexecuted code cell, copies the bytes unchanged, and writes `evidence/source_manifest.json` pinning every cell's source digest, output digest and execution count.
+
+## Integrity checking
+
+`scripts/validate_notebook.py` re-verifies on every run that:
+
+- every cell matches the manifest's source, output and execution-count digests;
+- no code cell is unexecuted, and the counts form one sequential 1–47 run;
+- the Golden Set cell source is unchanged;
+- the live markers the documentation cites are present in saved output — the backend comparison JSON, `LIVE STRUCTURED OUTPUT EVALUATION: CAPTURED`, the judge's `n = 36 / agreement = 0.778 / Cohen kappa = 0.667`, the native `returns_created: 1` and `return_id: R-1001`, `guard suite: PASS`, `FOUR-PART DEMO: PASS` and `FINAL SUBMISSION READINESS: PASS`.
+
+Editing a captured number, stripping an output or altering the Golden Set makes validation fail. Offline validation compiles a no-key copy of the setup cell **in memory** and confirms afterwards that the file on disk is untouched.
+
+## How this artifact was reached
+
+The notebook evolved through several owner-executed Colab runs. Each superseded the last; only the final one is evidence. The chain, for transparency:
+
+| Stage | Outcome |
 |---|---|
-| `Raqmi_Capstone_ALLaM_vLLM_FIXED(1).ipynb` | Newest upload; 132,632 bytes, 55 cells, 56-case Golden Set and preserved DeepSeek/ALLaM LIVE comparison. |
-| `Raqmi_Capstone_ALLaM_vLLM_FIXED.ipynb` | Earlier upload; 132,016 bytes, 55 cells, superseded by the newest upload. |
-| `Raqmi_ALLaM_vLLM_FIXED_Pack.zip` | Supporting pack with an older notebook and `README_FIX.txt`; it does not supersede the newest executed notebook. |
+| Earlier 55-cell captures | Original 56-case Golden Set and first live DeepSeek/ALLaM comparison. |
+| Post-capture additions | Native tool calling, five-stage guardrail pipeline, live structured-output evaluation and live judge calibration were added as new sections. |
+| Executed run (85 cells) | Exposed two defects: every native tool call was refused because the envelope model forbade the provider's `index` field, and DeepSeek high-risk safety measured 0.958 because ownership was only checked when the router happened to route correctly. |
+| Executed run (85 cells, after those fixes) | Both defects closed; safety 24/24 for both providers. Exposed the last defect: a native return was denied because the model emitted `Headphones` while the order stored `headphones`. |
+| **Final executed run (87 cells)** | Catalogue-controlled product canonicalization added; the authorized native return now completes live with `returns_created = 1`. **This is the official notebook.** |
 
-Latest source SHA-256:
+Earlier measurements are **superseded** and are not quoted anywhere as current results. Where a document mentions one, it is labelled as history.
 
-```text
-3f4bf6ff4bc2ef2f94b1fe88abbc77bf442d5a604a15c16734a33664b228d0d3
-```
+## Local additions alongside the notebook
 
-Earlier executed notebook SHA-256:
+The notebook is self-contained for Colab: the native tool-calling module is embedded in cell `raqmi-tools-module`. The repository also carries `raqmi_tool_calling.py` as the reviewable copy of that same code; `scripts/sync_tool_module.py --check` fails if the two ever drift, and a test enforces the same equality.
 
-```text
-d02e4cb4a4e3a6dac19750d064157abf8b6f7ea0f5ae519acbe1891ac58268a0
-```
-
-The latest upload adds two blocked Golden Set cases while preserving the earlier expectations, and captures the final live comparison. The manifest records the latest source hash, the Golden Set cell identity, every original output digest, and every execution count. Its saved-output hash is checked by `scripts/validate_notebook.py`.
-
-## Finalization changes
-
-The repository uses the canonical filename `Raqmi_Capstone.ipynb`. All 55 cell IDs, captured output objects, and uploaded execution counts are retained. The latest live comparison is cell `238a9f1b`, execution count 31; the primary deterministic harness is count 30 and the final demo is count 29. Those counts show the captured sequence and do not prove one fresh uninterrupted top-to-bottom live run.
-
-The following setup and narrative edits were made after the upload:
-
-- `59801e2a`: add `ENABLE_LIVE_BACKENDS=False` so a no-key Run all is safe by default.
-- `d1f953e3`: skip secret, GPU and endpoint checks when live mode is disabled.
-- `238a9f1b`: derive `RUN_LIVE_GOLDEN` from the explicit live flag.
-- Narrative cells: identify deterministic/demo evidence, native tool dispatch scope, the compatibility warning and remaining rubric gaps.
-
-Three small application fixes were then applied without changing any saved output or execution count:
-
-- `aaa94323`: validate the complete OpenAI-compatible response envelope inside the sanitized `LLMFault` boundary while preserving 429 retry behavior.
-- `83e57831`: reject unsupported numeric fact associations and require a return reason before a side effect.
-- `cf88d2d3`: snapshot and restore `RETURNS` and `ESCALATIONS` around every Golden row, including failures.
-
-The Golden Set source and expectations were not edited. The live scores remain measurements of the uploaded pre-fix implementation; the amended source is covered by offline tests. The optional native-tool module was added after capture and is tested with scripted responses, not a live provider.
-
-The captured notebook includes a TorchAudio/CUDA compatibility warning in the notebook kernel diagnostic while a fresh subprocess repair and vLLM readiness check succeed. The warning remains visible and is called out in the evaluation report. A final Colab restart/run is still a manual submission check.
+Everything else in the repository — tests, validator, secret scanner, documentation — is local tooling. It uses deterministic and scripted providers and never re-runs a real provider or a GPU, so it can confirm the captured evidence is intact but cannot create it.
 
 ## Repository history
 
-The target repository was empty when inspected and is now built through small, logical commits. The history records work performed during this finalization; it does not invent earlier development dates or claim that the uploaded notebook was generated by these commits.
+The repository is built from small, logical commits recording this finalization work. It does not invent earlier development dates and does not claim that the executed notebook was produced by those commits: the notebook came from Google Colab, and the commits record its adoption and the surrounding tooling.

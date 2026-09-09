@@ -25,25 +25,61 @@ import urllib.request
 
 ROOT = Path(__file__).resolve().parents[1]
 NOTEBOOK = ROOT / "Raqmi_Capstone.ipynb"
-ORIGINAL_NOTEBOOK_SHA256 = "3f4bf6ff4bc2ef2f94b1fe88abbc77bf442d5a604a15c16734a33664b228d0d3"
-ORIGINAL_OUTPUT_SHA256 = "9b0a7d9bd8030d25f14364dbb2d527bf9f068da71a8281ff11fc17072e94055e"
+# The official notebook is the owner's final executed Colab run, copied verbatim.
+OFFICIAL_NOTEBOOK_SHA256 = "cffa505e0d2289f1654651d79b36b5edc55fe54b3d25003bd88fafea9c6eb345"
+LIVE_COMPARISON_CELL_ID = "238a9f1b"
+SETUP_CELL_ID = "59801e2a"
+FINAL_CHECK_CELL_ID = "raqmi-final-check"
+LIVE_FLAG_ON = "ENABLE_LIVE_BACKENDS = True"
+LIVE_FLAG_OFF = "ENABLE_LIVE_BACKENDS = False"
+
+# Captured LIVE measurements, checked independently of all fresh offline metrics.
 EXPECTED_LIVE = {
     "commercial": {
         "mode": "LIVE",
         "model": "deepseek-v4-flash",
-        "quality": 0.8928571428571429,
-        "arabic": 0.8620689655172413,
+        "quality": 0.9107142857142857,
+        "arabic": 0.896551724137931,
         "safety": 1.0,
-        "wall_s": 67.33267155800013,
+        "wall_s": 60.947293607000006,
     },
     "open_weight": {
         "mode": "LIVE",
         "model": "humain-ai/ALLaM-7B-Instruct-preview",
-        "quality": 0.8928571428571429,
+        "quality": 0.9107142857142857,
         "arabic": 0.896551724137931,
         "safety": 1.0,
-        "wall_s": 60.25017996800011,
+        "wall_s": 63.910626944,
     },
+}
+
+# Markers the submission's documentation cites, checked against saved output.
+EXPECTED_CAPTURES = {
+    "raqmi-structured-report": (
+        "mode: LIVE | model: deepseek-v4-flash",
+        "LIVE STRUCTURED OUTPUT EVALUATION: CAPTURED",
+        "structured-output safety invariants: PASS",
+        "Cases: 10", "First-pass valid: 5/10", "After repair: 1/10", "Escalated: 4/10",
+    ),
+    "raqmi-judge-report": (
+        "[LIVE] judge=deepseek-v4-flash", "n = 36", "agreement = 0.778",
+        "Cohen kappa = 0.667", "target kappa >= 0.60 -> MET",
+        "used as a regression gate: False",
+    ),
+    "raqmi-tools-live": (
+        "LIVE NATIVE TOOL CALLING: CAPTURED",
+        '"returns_created": 1', '"return_id": "R-1001"',
+        '"product_canonical": "headphones"',
+        "authorization_denied",
+        "tool-call diagnostics: none recorded",
+    ),
+    "raqmi-final-check": ("FINAL SUBMISSION READINESS: PASS",),
+    "52ef9833": (
+        "attacks: 32/32 blocked = 100.0%",
+        "legitimate: 0/32 blocked = false-positive 0.0%",
+        "guard suite: PASS",
+    ),
+    "fa8d1fac": ("FOUR-PART DEMO: PASS",),
 }
 
 
@@ -52,49 +88,76 @@ def canonical_hash(value):
     return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
 
 
-def captured_output_hash(notebook):
-    return canonical_hash([
-        {"index": i, "outputs": cell.get("outputs", []),
-         "execution_count": cell.get("execution_count")}
-        for i, cell in enumerate(notebook["cells"])
-        if cell["cell_type"] == "code"
-    ])
+def load_manifest():
+    return json.loads((ROOT / "evidence/source_manifest.json").read_text(encoding="utf-8"))
+
+
+def cell_by_id(notebook, cell_id):
+    for cell in notebook["cells"]:
+        if cell["id"] == cell_id:
+            return cell
+    raise AssertionError(f"Cell {cell_id} is missing from the notebook")
 
 
 def captured_live(notebook):
-    """Read recorded JSON; never substitute freshly generated demo metrics."""
-    text = "".join(
-        "".join(output.get("text", []))
-        for output in notebook["cells"][44].get("outputs", [])
-        if output.get("output_type") == "stream"
-    )
+    """Validate the saved LIVE comparison, never a freshly generated demo score."""
+    cell = cell_by_id(notebook, LIVE_COMPARISON_CELL_ID)
+    text = "".join("".join(output.get("text", []))
+                   for output in cell.get("outputs", [])
+                   if output.get("output_type") == "stream")
     if "LIVE BACKEND COMPARISON: CAPTURED" not in text:
         raise AssertionError("Saved LIVE comparison marker is missing")
     comparison, _ = json.JSONDecoder().raw_decode(text.lstrip())
     if comparison != EXPECTED_LIVE:
-        raise AssertionError("Saved LIVE comparison differs from the uploaded evidence")
+        raise AssertionError("Saved LIVE comparison differs from the captured Colab run")
     return comparison
 
 
 def verify_saved_evidence(notebook):
-    if captured_output_hash(notebook) != ORIGINAL_OUTPUT_SHA256:
-        raise AssertionError("Saved cell outputs/execution counts changed from the uploaded notebook")
-    manifest = json.loads((ROOT / "evidence/source_manifest.json").read_text(encoding="utf-8"))
-    if manifest["source_sha256"] != ORIGINAL_NOTEBOOK_SHA256:
-        raise AssertionError("Manifest does not identify the latest supplied source")
-    if len(notebook["cells"]) != len(manifest["original_cells"]):
-        raise AssertionError("Cell inventory differs from provenance manifest")
-    for cell, record in zip(notebook["cells"], manifest["original_cells"]):
-        if (cell["id"], cell["cell_type"]) != (record["id"], record["cell_type"]):
-            raise AssertionError("Cell identity or order changed")
-        if canonical_hash(cell["source"]) != record["final_source_sha256"]:
-            raise AssertionError(f"Undocumented source change in cell {cell['id']}")
+    """The official notebook must still be the owner's executed Colab artifact.
+
+    Every cell is pinned by the manifest, every code cell must carry the
+    execution count from that sequential run, and the live markers that make the
+    submission's claims must still be present in the saved output. Nothing here
+    regenerates evidence; it only refuses a notebook that has drifted from the
+    capture.
+    """
+    manifest = load_manifest()
+    records = {record["id"]: record for record in manifest["cells"]}
+    if len(records) != len(manifest["cells"]):
+        raise AssertionError("Provenance manifest has duplicate cell ids")
+    if [cell["id"] for cell in notebook["cells"]] != [r["id"] for r in manifest["cells"]]:
+        raise AssertionError("Notebook cells differ from the provenance manifest")
+
+    executed = 0
+    for cell in notebook["cells"]:
+        record = records[cell["id"]]
+        if cell["cell_type"] != record["cell_type"]:
+            raise AssertionError(f"Cell type changed for {cell['id']}")
+        if canonical_hash(cell["source"]) != record["source_sha256"]:
+            raise AssertionError(f"Source changed in cell {cell['id']}")
         if canonical_hash(cell.get("outputs", [])) != record["outputs_sha256"]:
-            raise AssertionError("An original output was changed")
+            raise AssertionError(f"Captured output changed in cell {cell['id']}")
         if cell.get("execution_count") != record["execution_count"]:
-            raise AssertionError("An original execution count was changed")
-        if cell["id"] == manifest["golden_cell_id"] and canonical_hash(cell["source"]) != record["source_sha256"]:
-            raise AssertionError("Latest supplied Golden Set or expectations were modified")
+            raise AssertionError(f"Execution count changed in cell {cell['id']}")
+        if cell["cell_type"] == "code":
+            if cell.get("execution_count") is None:
+                raise AssertionError(f"Official notebook has an unexecuted cell: {cell['id']}")
+            executed += 1
+    if executed != manifest["code_cells_executed"]:
+        raise AssertionError("Executed code-cell count differs from the manifest")
+
+    golden = cell_by_id(notebook, manifest["golden_cell_id"])
+    if canonical_hash(golden["source"]) != records[manifest["golden_cell_id"]]["source_sha256"]:
+        raise AssertionError("The Golden Set or its expectations were modified")
+
+    # The exact live markers this submission's documentation relies on.
+    for cell_id, fragments in EXPECTED_CAPTURES.items():
+        cell = cell_by_id(notebook, cell_id)
+        output_text = "".join("".join(output.get("text", [])) for output in cell.get("outputs", []))
+        missing = [fragment for fragment in fragments if fragment not in output_text]
+        if missing:
+            raise AssertionError(f"Captured LIVE evidence missing from {cell_id}: {missing}")
     return captured_live(notebook)
 
 
@@ -135,6 +198,7 @@ def run_notebook(path=NOTEBOOK):
         raise AssertionError("Expected notebook format 4")
     saved_live = verify_saved_evidence(notebook)
     compiled = []
+    forced_offline = False
     for index, cell in enumerate(notebook["cells"]):
         if cell["cell_type"] == "code":
             source = "".join(cell["source"])
@@ -143,7 +207,22 @@ def run_notebook(path=NOTEBOOK):
                            else [node.module or ""] if isinstance(node, ast.ImportFrom) else [])
                 if cell["id"] != "aaa94323" and any(name.split(".")[0] in {"openai", "anthropic", "deepseek"} for name in imports):
                     raise AssertionError(f"Provider SDK import outside adapter cell: {cell['id']}")
-            compiled.append((index, compile(source, f"{path.name}:cell-{index}", "exec")))
+            filename = f"{path.name}:cell-{cell['id']}"
+            code = compile(source, filename, "exec")
+            if cell["id"] == SETUP_CELL_ID:
+                tree = ast.parse(source)
+                assignments = [node for node in tree.body if isinstance(node, ast.Assign)
+                               and any(isinstance(target, ast.Name) and target.id == "ENABLE_LIVE_BACKENDS"
+                                       for target in node.targets)]
+                if len(assignments) != 1 or not isinstance(assignments[0].value, ast.Constant):
+                    raise AssertionError("Expected one literal live-backend setup switch")
+                if assignments[0].value.value is True:
+                    assignments[0].value = ast.Constant(value=False)
+                    code = compile(ast.fix_missing_locations(tree), filename, "exec")
+                    forced_offline = True
+                elif assignments[0].value.value is not False:
+                    raise AssertionError("Live-backend switch must be a boolean")
+            compiled.append((index, code))
 
     # Register the namespace so dataclasses can resolve postponed annotations.
     module = ModuleType("_raqmi_offline_notebook")
@@ -158,15 +237,23 @@ def run_notebook(path=NOTEBOOK):
                 raise RuntimeError(f"Offline execution failed in zero-based code cell {index}") from exc
     namespace = module.__dict__
     if namespace.get("ENABLE_LIVE_BACKENDS") is not False:
-        raise AssertionError("Notebook must default ENABLE_LIVE_BACKENDS to False")
+        raise AssertionError("Offline execution must keep ENABLE_LIVE_BACKENDS=False")
     if namespace.get("RUN_LIVE_GOLDEN") is not False:
         raise AssertionError("Offline run unexpectedly enabled LIVE evaluation")
     if any(value["mode"] != "DEMO_PREVIEW" for value in namespace["comparison"].values()):
         raise AssertionError("Fresh offline results must be labeled DEMO_PREVIEW")
+    for flag in ("RUN_LIVE_TOOL_EVAL", "RUN_LIVE_STRUCTURED_EVAL", "RUN_LIVE_JUDGE"):
+        if namespace.get(flag) is not False:
+            raise AssertionError(f"Offline run unexpectedly enabled {flag}")
+    for section, key in (("LIVE_TOOL_EVIDENCE", "mode"), ("STRUCTURED_REPORT", "mode"),
+                         ("JUDGE_CALIBRATION", "mode")):
+        if namespace[section][key] == "LIVE":
+            raise AssertionError(f"Offline run produced a LIVE label in {section}")
     if path.read_bytes() != before:
         raise AssertionError("Offline execution modified the saved notebook")
     return {
         "namespace": namespace,
+        "forced_offline": forced_offline,
         "compiled_cells": [index for index, _ in compiled],
         "executed_cells": [index for index, _ in compiled],
         "captured_live": saved_live,
@@ -185,11 +272,25 @@ def main():
     if args.verbose:
         print(result["stdout"])
     print(f"OFFLINE PASS: {len(result['compiled_cells'])} code cells compiled and executed in order")
+    if result["forced_offline"]:
+        print("Notebook ships with ENABLE_LIVE_BACKENDS=True; validation compiled a "
+              "no-key copy in memory and did not modify the file")
     print(f"Deterministic Golden Set: {len(ns['GOLDEN'])} cases; "
           f"overall={ns['primary_report']['overall']:.2%}; safety={ns['primary_report']['safety']:.2%}")
     print(f"Guard suite: {ns['attack_blocked']}/{len(ns['ATTACKS'])} attacks blocked; "
           f"{ns['legit_blocked']}/{len(ns['LEGIT'])} legitimate prompts blocked")
-    print("Saved LIVE comparison and all original outputs: unchanged; LIVE providers were NOT rerun")
+    print(f"Five-stage pipeline: {ns['pipeline_block_rate']:.0%} attack block; "
+          f"{ns['pipeline_fp_rate']:.0%} false positives; Golden Set answers unchanged")
+    print(f"Native tools: {len(ns['NATIVE_TOOL_LOG'])} logged calls across risk classes "
+          f"{sorted({e['risk_class'] for e in ns['NATIVE_TOOL_LOG']})}")
+    print(f"Structured output ({ns['STRUCTURED_REPORT']['mode']}): "
+          f"ar {ns['STRUCTURED_REPORT']['ar']}; en {ns['STRUCTURED_REPORT']['en']}")
+    print(f"Judge calibration ({ns['JUDGE_CALIBRATION']['mode']}): "
+          f"n={ns['JUDGE_CALIBRATION']['final']['n']}, "
+          f"kappa={ns['JUDGE_CALIBRATION']['final']['kappa']:.3f}")
+    print("Captured LIVE evidence (backend comparison, structured output, judge, "
+          "native tools, readiness): verified present and unchanged")
+    print("Official notebook is the owner's executed Colab run; LIVE providers were NOT rerun here")
     print("Network/process operations: blocked; notebook files: not written")
     return 0
 

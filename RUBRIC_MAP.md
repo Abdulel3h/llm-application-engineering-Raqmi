@@ -1,45 +1,89 @@
-# Raqmi rubric evidence map
+# Rubric map
 
-**Raqmi — Bilingual AI Retail Support · Track D — Retail Order Support**
-**Abdulelah Alkhathami · LLM Application Engineering · SDAIA Academy**
-**SDA-AIE-213 · Cohort: 06–09 September 2026**
+Every row points to the notebook section, the file, and the exact captured evidence, so nothing has to be hunted for. All evidence is in the official executed notebook [`Raqmi_Capstone.ipynb`](Raqmi_Capstone.ipynb) (SHA-256 `cffa505e0d2289f1654651d79b36b5edc55fe54b3d25003bd88fafea9c6eb345`), 87 cells, 47/47 code cells executed sequentially against live DeepSeek and live ALLaM/vLLM.
 
-The [official capstone rubric](https://mohammadyusif.github.io/llm-application-engineering/capstone.html) was checked again on 9 September 2026 after the latest upload; it was unchanged. This map records requirements and evidence without assigning points. The [tools lab](https://mohammadyusif.github.io/llm-application-engineering/labs/lab3-tickets-and-tools.html) defines function calling as a model request followed by application validation/execution and a tool-result message. The course links to [SDAIA Academy on GitHub](https://github.com/SDAIAAcademy).
+**Status vocabulary:** *LIVE* = measured against a real provider in that run. *Deterministic* = reproducible no-key result. *Scenario* = arithmetic over stated assumptions, not billing.
 
-## Evidence versions
+## 1 — Architecture and model boundary
 
-The latest source is `Raqmi_Capstone_ALLaM_vLLM_FIXED(1).ipynb`, SHA-256 `3f4bf6ff4bc2ef2f94b1fe88abbc77bf442d5a604a15c16734a33664b228d0d3`. It has 55 cells and a newly executed **56-case** Golden Set. It adds two blocked cases to the prior upload without changing prior case expectations. Its capture supersedes the earlier comparison.
+| Criterion | Notebook | File / cell | Evidence | Status |
+|---|---|---|---|---|
+| Router-first architecture, ADRs | §1 | cell `1aaaa06c`, [DECISIONS.md](DECISIONS.md) | four stable intents, documented trade-offs | Deterministic |
+| Single model boundary | §6 | `LLMClient`, cell `aaa94323` | one abstraction; provider imports confined to the adapter; boundary assert `fe9245fe` | Deterministic |
+| Commercial backend | §6A | cell `d1f953e3`, `a1c2778f` | `deepseek-v4-flash` bound and used | **LIVE** |
+| Open-weight backend, local serving | §6A | vLLM on Colab T4 | `humain-ai/ALLaM-7B-Instruct-preview`, OpenAI-compatible endpoint `http://127.0.0.1:8000/v1`; `ALLaM/vLLM READY`; smoke test `4d49188f` | **LIVE** |
+| Deterministic routing policy | §8 | cell `83e57831` | model label corrected on evidence; unowned order always reaches the ownership check | Deterministic |
+| Reliability and fallback | §17 | cell `969a5bf1` | scripted 429 → retry → success; outage → open-weight fallback | Deterministic |
 
-References below identify sections and stable cell IDs in [Raqmi_Capstone.ipynb](Raqmi_Capstone.ipynb); numerical indexes, where used, are zero-based. [SOURCE_PROVENANCE.md](SOURCE_PROVENANCE.md) and [the manifest](evidence/source_manifest.json) distinguish uploaded code/outputs from subsequent fixes. Saved live outputs measure the uploaded implementation **before** finalization fixes. Local tests do not validate those fixes against a live provider.
+## 2 — Structured output and tools
 
-## Requirements and evidence
+| Criterion | Notebook | File / cell | Evidence | Status |
+|---|---|---|---|---|
+| Validated domain object | §4 | `ReturnRequest`, cell `4b881e89` | constrained order id, product, reason, language | Deterministic |
+| Model extraction, validate → retry → repair → escalate | Live Structured Output Evaluation | `raqmi-structured-corpus`, `-pipeline`, `-report` | 20 cases, 10 per language, DeepSeek, 23.79 s | **LIVE** |
+| Per-language pass rates | same | `raqmi-structured-report` | each language **5 first-pass valid, 1 after repair, 4 escalated**, 10/10 designed outcomes matched, safety invariants PASS | **LIVE** |
+| Three tool risk classes | §5 | cell `5ee3c60d` | `lookup_order` read-only, `create_return` side-effecting, `escalate_to_human` terminal | Deterministic |
+| Native model-issued tool calling | §9A | `raqmi-tools-module`, [raqmi_tool_calling.py](raqmi_tool_calling.py), [TOOL_CALLING.md](TOOL_CALLING.md) | `tool_calls` → envelope normalization → whitelist → strict Pydantic → canonicalization → authorization → execution → `role: tool` → final answer | **LIVE** |
+| Authorized lookup | Native Tool Calling — Live Evidence | `raqmi-tools-live` | model issued `lookup_order`; executed; tool result returned | **LIVE** |
+| Cross-user lookup denied | same | `raqmi-tools-live` | `authorization_denied`; no other customer's data exposed | **LIVE** |
+| Authorized return | same | `raqmi-tools-live` | **`returns_created = 1`**, **`return_id = R-1001`**, canonical product `headphones` | **LIVE** |
+| Negative and bounds assertions | §9A offline | `raqmi-tools-offline`, `raqmi-tools-negative` | unknown tool, malformed arguments, cross-user return, duplicate replay, iteration and tool-call limits, terminal tool | Deterministic |
+| Authorization outside the LLM | §5, §9A | `Session.authorize_order()` | model cannot supply identity, ownership, membership or a return id | Deterministic |
+| Risk-class and iteration logging | §9A | `NATIVE_TOOL_LOG` | every call logs tool, risk class, iteration, outcome, product canonicalization | **LIVE** |
 
-| Section / requirement | Actual evidence | Status and remaining scope |
-|---|---|---|
-| **1 — Architecture:** router-first FAQ, transaction and escalation paths; model boundary; isolated provider imports with an assert; two configurable live backends; scripted rate-limit/outage transcript; ADR | §1 `1aaaa06c`; `LLMClient`/HTTP adapter §6 `aaa94323`; import assert `fe9245fe`; provider setup §6A `d1f953e3` and `a1c2778f`; ALLaM smoke `4d49188f`; LIVE comparison §16 `238a9f1b`; fault drill §17 `969a5bf1`; [decisions](DECISIONS.md). | Boundary, live routes and scripted faults are evidenced. A FAQ uses a router call plus an answer call, so the whole FAQ path is not single-call. The historical import assert checks selected global names rather than the full source. |
-| **2 — Structured output:** validated domain object; model extraction with validate → retry → repair; first-try/repaired pass rates by language | `ReturnRequest` §4 `4b881e89`; `extract_return()` §8 `83e57831`. | Pydantic validation exists. Historical extraction parses in Python, validates, calls the model and ignores its extraction response. There is no live model-extraction/repair corpus or language-split pass-rate evidence. |
-| **2 — Tools:** ≥3 risk classes, session authorization, bounded tool loop, negative assertions with visible results, risk/iteration logs | Direct tools §5 `5ee3c60d`: `lookup_order` read-only, `create_return` side-effecting, `escalate_to_human` terminal. Ownership/product tests §9 `21f3de3c`. Supplemental [native module](raqmi_tool_calling.py), [tests](tests/test_tool_calling.py), and [scope](TOOL_CALLING.md). | Historical application directly dispatches tools. Supplemental native protocol is an **offline extension, not integrated with captured `ask()`/evaluation; provider verification is missing**. Its tests address protocol safety without claiming a live tool transcript. |
-| **3 — Prompts/pipeline:** versioned artifacts and changelog, no handler-inline model prompts, logged served version; five stages demonstrated separately | Prompts §2 `73eaacc4`; normalization/guards §7 `f4441e3e`; router/handler and model log §8 `83e57831`. | Central prompts and integrated stages exist. The upload does not independently demonstrate every stage in its own cell. |
-| **3 — Guardrails:** bilingual attacks ≥30 and ≥95% blocked; legitimate traps ≥30 and 0% false positives; normalized matching, intact canary, bilingual non-echoing refusals | §10 `52ef9833`: **32/32 attacks blocked; 0/32 legitimate requests blocked**. Normalization and fixed refusals in `f4441e3e`. | Captured requirements satisfied on this finite corpus. Exact-canary detection and regex coverage do not prove general injection resistance or data-loss prevention. |
-| **4 — Dataset:** ≥40 cases; Arabic-majority; intent/language/difficulty/risk strata all ≥8; safety oversampled; owner-approved expectations | §11 `31d0b2a6`: **56 cases**, Arabic 29/English 27; intents order 14/FAQ 13/return 12/escalate 9/blocked 8; difficulty easy 12/medium 16/hard 28; risk low 11/medium 21/high 24. | All marginal strata now satisfy the minimum, including the blocked intent at eight cases. Expectations remain author-defined; independent approval must not be invented. |
-| **4 — Harness:** real application pipeline, deterministic safety checks, safety 100%, slice-based regression gate with clean and degraded captured runs | `run_golden()` calls `ask()`, §12 `cf88d2d3`: deterministic **56/56**, high-risk **24/24**. Gate §14 `2a6b7cbc`: clean PASS, degraded BLOCK. Post-capture tests cover state isolation and provider-boundary failure behavior. | Captured evidence exists. Pass criteria use intent, blocked flag and required substring, not comprehensive factuality. The saved live scores remain evidence for the uploaded pre-fix implementation; the amended code is verified offline. |
-| **4 — Judge/report:** actual calibrated LLM judge, Cohen's κ≥0.6, calibration evidence, overall/sliced results and limitations | §13 `b4666e9b`: synthetic κ=1.00 over 40 repeated label/support records. [Evaluation report](EVALUATION_REPORT.md). | Actual judge calibration remains missing: `RuleBasedClient` echoes metadata scores. The regression gate is deterministic and does not use this synthetic judge. Full live slices were not printed or exported. |
-| **5 — Meter:** 100% of model calls, guards/router included | Successful-response `model_call()` log, §8 `83e57831`; usage fields in adapter `aaa94323`. Guards are deterministic and make no model call. | Direct smoke calls and failed resilience attempts are not comprehensively metered. No captured 100% attempt-coverage audit. |
-| **5 — Caching:** ≥65% cached input proven from provider usage; complete response-cache key; measured semantic threshold and zero wrong near-miss hits | §15 `e61f8b9e`: **65.9% simulated** prefix ratio; `ff8a50e3`: exact-cache scenario; `4aed2e17`: **0/5** near-miss key collisions. | Provider adapter can read cache fields, but the displayed ratio is synthesized by the demo client. No calibrated semantic tier. Historical exact key omits grounding revision; cache is separate from `ask()`. Key inequality is narrower than a retrieval test. |
-| **5 — Optimization:** ≥60% before/after saving with an evaluation verdict beside every step | §15 `ff8a50e3`: **93.4% scenario saving**, 100-request repeated FAQ benchmark, one **100% deterministic Golden** verdict next to saving. [Benchmarks](BENCHMARKS.md). | Prices, usage and cache latency are assumptions/simulation. The Golden verdict does not exercise the cache path; individual cost rows do not establish separately evaluated optimization stages. No live cost-saving claim is made. |
-| **6 — Model comparison:** own Golden Set on both providers, quality slices plus cost/latency; measured-throughput self-host break-even with both comparisons; evidence-based routing | §16 `238a9f1b`: both explicitly LIVE, DeepSeek `deepseek-v4-flash` vs `humain-ai/ALLaM-7B-Instruct-preview`/vLLM; overall/Arabic/high-risk/wall-time aggregates. [Benchmarks](BENCHMARKS.md), [decisions](DECISIONS.md). | Live comparison exists but full slices, costs and measured self-host break-even are missing. Sequential Golden wall time is not saturated GPU throughput. Recommendation is limited to this sample and environment. |
-| **7 — Complete application:** fresh no-key Colab Run all, bilingual conversation, captured grounded answer/tool action/refusal/fault fallback | §18 `fa8d1fac` captures all four using deterministic clients. Finalization changes default mode to `ENABLE_LIVE_BACKENDS=False`; live comparison follows explicit opt-in. | A fresh final Colab run remains to be checked. Latest upload shows real vLLM installation/repair/readiness and live requests, but includes a compatibility diagnostic warning and nonsequential execution counts. |
-| **Submission artifacts:** professional README, full name, programme/cohort, technical documentation, secret-excluding gitignore, meaningful history, one explanation per section, actual reversed trade-off | [README](README.md), [evaluation](EVALUATION_REPORT.md), [benchmarks](BENCHMARKS.md), [decisions](DECISIONS.md), [.gitignore](.gitignore), [provenance](SOURCE_PROVENANCE.md). | Final checks must verify links, secrets/history, rendered repository and clean Git status. Contemporary finalization commits are not fabricated earlier development history. |
+## 3 — Prompts and guardrails
 
-## Submission classification
+| Criterion | Notebook | File / cell | Evidence | Status |
+|---|---|---|---|---|
+| Versioned prompt artefacts, changelog | §2 | cell `73eaacc4` | central registry; no inline handler prompts; served version logged | Deterministic |
+| Five stages demonstrated separately | §7A | `raqmi-guard-stage1` … `stage5`, [GUARDRAILS.md](GUARDRAILS.md) | one cell per stage: normalization, deterministic guard, PII masking, safety classifier, outbound wall | Deterministic |
+| Attack corpus ≥30, ≥95% blocked | §10 | cell `52ef9833` | **32/32 = 100%** | Deterministic |
+| Legitimate corpus ≥30, 0% false positives | §10 | cell `52ef9833` | **0/32 = 0%** | Deterministic |
+| Whole-wall re-measurement | §10A | `raqmi-guard-eval` | same 100% / 0% under all five stages | Deterministic |
+| No regression from the wall | §12B | `raqmi-guard-parity` | 0 of 56 Golden answers changed | Deterministic |
+| PII masking, outbound leakage | §7A | `stage_mask_pii`, `stage_output_guard` | Arabic and English mobile/e-mail masking; canary, PII, internal-error and instruction-relay categories | Deterministic |
 
-| Classification | Item and required treatment |
-|---|---|
-| **CRITICAL BEFORE SUBMISSION** | Verify the final notebook uses the new 56-case capture everywhere; preserve its output and source provenance. Run normal regression/safety tests after fixes and scan working files plus history for secrets. Confirm no-key default execution. The owner should restart and run the final notebook in Colab and review the retained compatibility diagnostic before submission. A red safety suite cannot pass under the rubric. |
-| **ALREADY SATISFIED** | Arabic-majority Golden Set and every marginal stratum ≥8; captured paired attack/false-positive rates; captured deterministic and live high-risk safety 100%; two live configurable providers; three tool risk classes and session authorization; deterministic regression block and fault/four-part transcripts; identified final notebook and documentation. These statements apply to their stated evidence version. |
-| **DOCUMENTED LIMITATION** | Independent live judge calibration; model extraction/repair rates by language; provider-verified native tool loop integrated into the evaluated application; full live slices/costs; real prefix-cache ratio; semantic-cache calibration; complete metering; measured-throughput self-host economics; narrow grounding and finite guard coverage. They are incomplete rubric evidence, not completed work. |
-| **NICE TO HAVE** | Additional separate stage-demo cells and clearer per-case tool transcripts would improve the evidence presentation. Optional course extensions and independent peer-review/red-team records would add evidence only if actually performed. They do not replace the outstanding mandatory evidence. |
+## 4 — Dataset, harness, judge
 
-The latest Colab capture logs successful TorchAudio verification in a fresh subprocess and an ALLaM server, while the notebook-kernel diagnostic `da57f2b3` reports a CUDA mismatch. These outputs must both remain visible. Harness execution count 30 and live comparison count 31 follow the four-part demo count 29, so this artifact does not prove one uninterrupted fresh top-to-bottom run.
+| Criterion | Notebook | File / cell | Evidence | Status |
+|---|---|---|---|---|
+| ≥40 cases, Arabic-majority, strata ≥8 | §11 | cell `31d0b2a6` | **56 cases**; ar 29 / en 27; intents 14/13/12/9/8; difficulty 12/16/28; risk 11/21/24 | Deterministic |
+| Harness runs the real pipeline | §12 | cell `cf88d2d3` | `run_golden()` calls `ask()`; deterministic 56/56, high-risk 24/24 | Deterministic |
+| Failed-case diagnosis | §12A | `raqmi-failed-cases` | every failure printed with criteria, guard category, router label and policy decision; high-risk failures listed separately | **LIVE** |
+| Safety 100% | §16 | cell `238a9f1b` | DeepSeek 24/24, ALLaM 24/24 | **LIVE** |
+| Slice-based regression gate | §14 | cell `2a6b7cbc` | clean PASS, seeded degraded prompt BLOCK | Deterministic |
+| Calibrated LLM judge, κ ≥ 0.6 | Live LLM-as-a-Judge Calibration | `raqmi-judge-corpus`, `-run`, `-report` | **n = 36, agreement 0.778, κ 0.667**, target met, 8 disagreements printed, labels frozen by SHA-256, judge never sees them | **LIVE** |
+| Judge is not the gate | same | `JUDGE_IS_REGRESSION_GATE = False` | §14 stays deterministic | Deterministic |
+| Deterministic scaffold kept separate | §13 | cell `b4666e9b` | labelled DETERMINISTIC / SYNTHETIC; κ = 1.00 is plumbing only | Deterministic |
 
-No optional bonus extension or independent peer sign-off is claimed. The rubric's capping risks—changed expectations to hide failures, unpaired guard rates, unevaluated savings, and an uncalibrated judge controlling a gate—must remain distinct from honest disclosure of missing evidence.
+## 5 — Metering, caching, optimization
+
+| Criterion | Notebook | File / cell | Evidence | Status |
+|---|---|---|---|---|
+| Metering of model calls | §8 | `MODEL_CALL_LOG` | usage and latency recorded through the boundary | Deterministic |
+| Cache design and near-miss safety | §15 | cells `ff8a50e3`, `4aed2e17` | exact key over model, prompt version, normalized text, language, params; **0/5** near-miss collisions | Deterministic |
+| Prefix-cache accounting | §15 | cell `e61f8b9e` | **65.9%** simulated ratio | Scenario |
+| Before/after saving with an evaluation verdict | §15 | cell `ff8a50e3` | 100 → 5 model calls, 95 cache hits, **93.4%** scenario saving beside a 100% Golden verdict | Scenario |
+
+## 6 — Model comparison
+
+| Criterion | Notebook | File / cell | Evidence | Status |
+|---|---|---|---|---|
+| Same Golden Set on both providers | §16 | cell `238a9f1b`, [BENCHMARKS.md](BENCHMARKS.md) | DeepSeek and ALLaM, both `mode: LIVE` | **LIVE** |
+| Quality, Arabic and safety slices | §16 | same | both **91.07%** overall, **89.66%** Arabic, **100%** high-risk | **LIVE** |
+| Latency | §16 | same | DeepSeek **60.95 s**, ALLaM **63.91 s** sequential | **LIVE** |
+| Routing recommendation | §21 | [DECISIONS.md](DECISIONS.md) | conditional on observed quality and wall time only | Deterministic |
+
+## 7 — Complete application and submission
+
+| Criterion | Notebook | File / cell | Evidence | Status |
+|---|---|---|---|---|
+| Colab Run all, bilingual conversation | whole notebook | counts 1–47, no gaps | one sequential live run | **LIVE** |
+| Four-part demo | §18 | cell `fa8d1fac` | grounded answer, tool action, refused attack, graceful fallback — **FOUR-PART DEMO: PASS** | Deterministic |
+| Runtime readiness check | Final submission check | `raqmi-final-check` | all ten checks PASS from live variables; **FINAL SUBMISSION READINESS: PASS** | **LIVE** |
+| Documentation and provenance | — | [README](README.md), [EVALUATION_REPORT](EVALUATION_REPORT.md), [BENCHMARKS](BENCHMARKS.md), [TOOL_CALLING](TOOL_CALLING.md), [GUARDRAILS](GUARDRAILS.md), [SOURCE_PROVENANCE](SOURCE_PROVENANCE.md), `evidence/source_manifest.json` | every cell pinned by digest; validator refuses drift | Deterministic |
+| No secrets | — | `scripts/scan_secrets.py` | 0 findings across tracked files and reachable git blobs | Deterministic |
+
+## Not claimed
+
+Provider billing or measured cache economics; saturated throughput or self-host break-even; a calibrated semantic-cache tier; complete live per-case export beyond the printed failed-case report; complete attempt metering; **ALLaM's own native tool-call parsing**; a second-annotator study for the judge corpus. Grounding, catalogue scope and PII coverage are intentionally narrow, and the lexical safety classifier is not a semantic model. Five FAQ cases failed per provider in the live run and are listed in [BENCHMARKS.md](BENCHMARKS.md).

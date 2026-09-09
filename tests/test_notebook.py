@@ -18,7 +18,8 @@ from pydantic import ValidationError
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from scripts.validate_notebook import (  # noqa: E402
-    EXPECTED_LIVE, NOTEBOOK, captured_live, offline_only, run_notebook, verify_saved_evidence,
+    EXPECTED_LIVE, LIVE_COMPARISON_CELL_ID, NOTEBOOK, captured_live, cell_by_id,
+    load_manifest, offline_only, run_notebook, verify_saved_evidence,
 )
 
 
@@ -65,21 +66,95 @@ class NotebookTests(unittest.TestCase):
         return io.BytesIO(json.dumps(value).encode("utf-8"))
 
     def test_all_cells_execute_offline_without_rewriting_evidence(self):
-        self.assertEqual(len(self.execution["compiled_cells"]), 26)
+        notebook = json.loads(NOTEBOOK.read_text(encoding="utf-8"))
+        expected = [index for index, cell in enumerate(notebook["cells"]) if cell["cell_type"] == "code"]
+        self.assertEqual(self.execution["compiled_cells"], expected)
         self.assertEqual(self.execution["compiled_cells"], self.execution["executed_cells"])
         self.assertFalse(self.n["ENABLE_LIVE_BACKENDS"])
         self.assertFalse(self.n["RUN_LIVE_GOLDEN"])
         self.assertTrue(all(x["mode"] == "DEMO_PREVIEW" for x in self.n["comparison"].values()))
         self.assertEqual(self.execution["captured_live"], EXPECTED_LIVE)
+        self.assertFalse(self.n["FINAL_SUBMISSION_CHECK"]["ready"])
+
+    def test_every_live_section_is_off_and_labelled_in_a_default_run_all(self):
+        for flag in ("RUN_LIVE_TOOL_EVAL", "RUN_LIVE_STRUCTURED_EVAL",
+                     "RUN_LIVE_JUDGE", "RUN_LIVE_GOLDEN_DEFAULT", "RUN_LIVE_GOLDEN"):
+            with self.subTest(flag=flag):
+                self.assertFalse(self.n[flag])
+        self.assertEqual(self.n["LIVE_TOOL_EVIDENCE"]["mode"], "SKIPPED")
+        self.assertEqual(self.n["STRUCTURED_REPORT"]["mode"], "DEMO_PREVIEW")
+        self.assertEqual(self.n["JUDGE_CALIBRATION"]["mode"], "DEMO_PREVIEW")
+
+    def test_official_notebook_is_the_fully_executed_colab_artifact(self):
+        """No cell may be unexecuted: the official notebook IS the captured run."""
+        notebook = json.loads(NOTEBOOK.read_text(encoding="utf-8"))
+        manifest = load_manifest()
+        code_cells = [cell for cell in notebook["cells"] if cell["cell_type"] == "code"]
+        self.assertEqual(len(code_cells), manifest["code_cells_total"])
+        self.assertEqual(len(code_cells), manifest["code_cells_executed"])
+        for cell in code_cells:
+            with self.subTest(cell=cell["id"]):
+                self.assertIsNotNone(cell["execution_count"])
+        counts = [cell["execution_count"] for cell in code_cells]
+        self.assertEqual(counts, sorted(counts))          # one sequential Run all
+        self.assertEqual(counts, list(range(1, len(code_cells) + 1)))
+        self.assertEqual(len({cell["id"] for cell in notebook["cells"]}),
+                         len(notebook["cells"]))
+
+    def test_latest_live_measurements_are_preserved_exactly(self):
+        """Latest captured results stay separate from the candidate's offline run."""
+        notebook = json.loads(NOTEBOOK.read_text(encoding="utf-8"))
+        recorded = captured_live(notebook)
+        self.assertEqual(recorded, EXPECTED_LIVE)
+        for provider in recorded.values():
+            self.assertEqual(provider["mode"], "LIVE")
+            self.assertEqual(provider["safety"], 1.0)
+        self.assertEqual(recorded["commercial"]["quality"], 51 / 56)
+        self.assertEqual(recorded["open_weight"]["arabic"], 26 / 29)
 
     def test_saved_evidence_tampering_is_rejected(self):
         notebook = json.loads(NOTEBOOK.read_text(encoding="utf-8"))
         verify_saved_evidence(notebook)
-        notebook["cells"][44]["outputs"][0]["text"][5] = '    "quality": 1.0,\n'
+        cell_by_id(notebook, "52ef9833")["outputs"][0]["text"][0] = "attacks: 99/99" + chr(10)
         with self.assertRaises(AssertionError):
             verify_saved_evidence(notebook)
-        with self.assertRaises(AssertionError):
-            captured_live(notebook)
+
+    def test_an_unexecuted_or_edited_cell_is_rejected(self):
+        """Stripping a captured output, or editing a source, must fail validation."""
+        for cell_id in ("raqmi-tools-live", "raqmi-judge-report", "238a9f1b"):
+            with self.subTest(cell=cell_id, tamper="cleared"):
+                notebook = json.loads(NOTEBOOK.read_text(encoding="utf-8"))
+                cell = cell_by_id(notebook, cell_id)
+                cell["outputs"] = []
+                cell["execution_count"] = None
+                with self.assertRaises(AssertionError):
+                    verify_saved_evidence(notebook)
+            with self.subTest(cell=cell_id, tamper="source"):
+                notebook = json.loads(NOTEBOOK.read_text(encoding="utf-8"))
+                cell_by_id(notebook, cell_id)["source"].append("\n# undocumented change\n")
+                with self.assertRaises(AssertionError):
+                    verify_saved_evidence(notebook)
+
+    def test_golden_set_and_evaluation_sources_cannot_be_changed(self):
+        for cell_id in ("31d0b2a6", "cf88d2d3", "52ef9833", "raqmi-judge-corpus",
+                        "raqmi-structured-corpus"):
+            with self.subTest(cell=cell_id):
+                notebook = json.loads(NOTEBOOK.read_text(encoding="utf-8"))
+                cell_by_id(notebook, cell_id)["source"].append("\n# undocumented change\n")
+                with self.assertRaises(AssertionError):
+                    verify_saved_evidence(notebook)
+
+    def test_captured_live_markers_must_all_be_present(self):
+        """Every headline claim in the documentation is pinned to saved output."""
+        from scripts.validate_notebook import EXPECTED_CAPTURES
+        notebook = json.loads(NOTEBOOK.read_text(encoding="utf-8"))
+        verify_saved_evidence(notebook)
+        for cell_id, fragments in EXPECTED_CAPTURES.items():
+            cell = cell_by_id(notebook, cell_id)
+            text = "".join("".join(o.get("text", [])) for o in cell.get("outputs", []))
+            for fragment in fragments:
+                with self.subTest(cell=cell_id, fragment=fragment):
+                    self.assertIn(fragment, text)
 
     def test_pydantic_invalid_return_fields_rejected(self):
         for invalid in (

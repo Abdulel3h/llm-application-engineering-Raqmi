@@ -1,13 +1,23 @@
-"""Opt-in native tool calling, added after the notebook's captured LIVE evaluation.
+"""Native model-issued tool calling, added after the notebook's captured LIVE evaluation.
 
-Bind to an executed notebook namespace; the historical ``ask`` path is unchanged.
-Transport tests use mocked HTTP responses. ALLaM native tool parsing is not verified.
+This file is the source of truth for the notebook cell of the same content; the
+notebook keeps a byte-identical copy so a standalone Colab upload needs no extra
+file, and ``scripts/sync_tool_module.py`` regenerates that copy. Bind to an
+executed notebook namespace; the historical ``ask`` path is unchanged.
+
+Flow proved end to end: model issues a native tool call -> the application checks
+the tool whitelist -> validates arguments with strict Pydantic schemas -> checks
+session ownership -> executes -> returns a ``role: tool`` result to the model ->
+the model writes the final answer. The model never decides authorization.
+
+Offline tests script every HTTP response. ALLaM native tool parsing is not verified.
 """
 from __future__ import annotations
 
 import json
 import os
 import time
+import unicodedata
 import urllib.error
 import urllib.request
 from typing import Any, Callable, Literal
@@ -49,15 +59,17 @@ class EscalationArguments(StrictArguments):
     reason: str = Field(min_length=1, max_length=300)
 
 
-class FunctionCall(StrictArguments):
-    name: str = Field(min_length=1, max_length=80)
-    arguments: str = Field(max_length=4096)
+class NormalizedToolCall(StrictArguments):
+    """The only four fields Raqmi consumes from a provider tool call."""
 
-
-class NativeToolCall(StrictArguments):
     id: str = Field(min_length=1, max_length=200)
     type: Literal["function"]
-    function: FunctionCall
+    name: str = Field(min_length=1, max_length=80)
+    arguments: str = Field(max_length=8192)
+
+
+class ToolEnvelopeError(ValueError):
+    """A provider envelope could not be reduced to the four required fields."""
 
 
 ARGUMENT_SCHEMAS = {
@@ -65,6 +77,7 @@ ARGUMENT_SCHEMAS = {
     "create_return": CreateReturnArguments,
     "escalate_to_human": EscalationArguments,
 }
+TOOL_WHITELIST = frozenset(ARGUMENT_SCHEMAS)
 RISK_CLASSES = {
     "lookup_order": "read_only",
     "create_return": "side_effect",
@@ -75,6 +88,123 @@ TOOL_DESCRIPTIONS = {
     "create_return": "Create a return for the authenticated customer's order and item.",
     "escalate_to_human": "End automated handling and open a human support case.",
 }
+
+
+TOOL_CALL_DIAGNOSTICS: list[dict[str, Any]] = []
+DIAGNOSTIC_PREVIEW_CHARS = 240
+
+
+def _preview(value: Any, limit: int = DIAGNOSTIC_PREVIEW_CHARS) -> str:
+    """Short printable form of model-supplied data.
+
+    Only ever applied to the provider's tool-call envelope. Request headers,
+    credentials and system prompts are never passed to this function.
+    """
+    text = value if isinstance(value, str) else repr(value)
+    return text[:limit] + ("..." if len(text) > limit else "")
+
+
+def _field(container: Any, key: str) -> Any:
+    """Read one field from a mapping or from an SDK object that uses attributes."""
+    if isinstance(container, dict):
+        return container.get(key)
+    return getattr(container, key, None)
+
+
+def normalize_tool_call(raw: Any, *, iteration: int = 1, position: int = 0) -> NormalizedToolCall:
+    """Reduce a provider tool call to id, type, function name and raw arguments.
+
+    Providers decorate this envelope with fields of their own -- DeepSeek returns
+    an ``index`` on every tool call -- and a model configured ``extra="forbid"``
+    rejects the entire call because of them, which is how a perfectly valid
+    ``lookup_order`` request became ``invalid_tool_request``. Only the four
+    fields Raqmi actually consumes are copied here, so provider decoration can no
+    longer deny a valid tool request.
+
+    This relaxes the **envelope** only. The tool arguments are handed to the
+    strict per-tool schema afterwards, which still forbids unknown fields, still
+    rejects wrong types, and still refuses any model-supplied identity field.
+    """
+    if raw is None or isinstance(raw, (str, bytes, int, float, bool, list, tuple)):
+        raise ToolEnvelopeError("tool call is not an object")
+    function = _field(raw, "function")
+    if function is None:
+        raise ToolEnvelopeError("tool call has no function payload")
+
+    name = _field(function, "name")
+    if not isinstance(name, str) or not name.strip():
+        raise ToolEnvelopeError("function name is missing or is not text")
+
+    arguments = _field(function, "arguments")
+    if arguments is None:
+        arguments = "{}"
+    elif isinstance(arguments, (dict, list)):
+        # Some providers send already-parsed arguments; re-serialize them so the
+        # strict schema still sees exactly one representation.
+        arguments = json.dumps(arguments, ensure_ascii=False)
+    elif isinstance(arguments, (bytes, bytearray)):
+        arguments = bytes(arguments).decode("utf-8", "replace")
+    elif not isinstance(arguments, str):
+        raise ToolEnvelopeError("function arguments are neither text nor an object")
+
+    call_type = _field(raw, "type") or "function"
+    if call_type != "function":
+        raise ToolEnvelopeError("unsupported tool call type")
+
+    call_id = _field(raw, "id")
+    if not isinstance(call_id, str) or not call_id.strip():
+        # A provider that omits ids still needs a stable id for the tool result.
+        call_id = f"local-{iteration}-{position}"
+
+    return NormalizedToolCall(id=call_id.strip()[:200], type="function",
+                              name=name.strip()[:80], arguments=arguments)
+
+
+def record_tool_diagnostic(stage: str, raw: Any, *, error: Any = None,
+                           normalized: Any = None) -> dict[str, Any]:
+    """Keep a safe, printable record of why a tool call was refused.
+
+    Without this, every parsing problem collapsed into ``invalid_tool_request``
+    with no way to tell an unknown tool from provider decoration. Only envelope
+    data written by the model is recorded; secrets are never in scope here.
+    """
+    scalar = raw is None or isinstance(raw, (str, bytes, int, float, bool, list, tuple))
+    function = None if scalar else _field(raw, "function")
+    entry: dict[str, Any] = {
+        "stage": stage,
+        "raw_type": type(raw).__name__,
+        "raw_fields": sorted(raw)[:20] if isinstance(raw, dict) else None,
+        "tool_call_id": None if scalar else _preview(_field(raw, "id"), 60),
+        "tool_call_type": None if scalar else _preview(_field(raw, "type"), 40),
+        "function_name": None if function is None else _preview(_field(function, "name"), 80),
+        "arguments_preview": None if function is None else _preview(_field(function, "arguments")),
+        "normalized": normalized.model_dump() if normalized is not None else None,
+        "errors": None,
+    }
+    if isinstance(error, ValidationError):
+        entry["errors"] = [{"loc": list(item["loc"]), "type": item["type"], "msg": item["msg"],
+                            "input": _preview(item.get("input"), 80)} for item in error.errors()]
+    elif error is not None:
+        entry["errors"] = [{"type": type(error).__name__, "msg": _preview(str(error), 160)}]
+    TOOL_CALL_DIAGNOSTICS.append(entry)
+    return entry
+
+
+def format_tool_diagnostics(entries: list[dict[str, Any]] | None = None) -> str:
+    """Render the diagnostics as safe, readable lines for a notebook cell."""
+    entries = TOOL_CALL_DIAGNOSTICS if entries is None else entries
+    if not entries:
+        return "tool-call diagnostics: none recorded (every tool call validated)"
+    lines = [f"tool-call diagnostics: {len(entries)} refusal(s) recorded"]
+    for entry in entries:
+        lines.append(f"  stage={entry['stage']} raw_type={entry['raw_type']} "
+                     f"raw_fields={entry['raw_fields']}")
+        lines.append(f"    id={entry['tool_call_id']} type={entry['tool_call_type']} "
+                     f"name={entry['function_name']}")
+        lines.append(f"    arguments={entry['arguments_preview']}")
+        for problem in entry["errors"] or []:
+            lines.append(f"    error {problem}")
+    return "\n".join(lines)
 
 
 def tool_definitions() -> list[dict[str, Any]]:
@@ -122,6 +252,76 @@ def _trusted_faq_answers(namespace: dict[str, Any], language: str) -> list[str]:
             for item in namespace["CATALOG"].values()
         )
     return answers
+
+
+def _inbound_guard(namespace: dict[str, Any], message: str) -> tuple[bool, str, str]:
+    """Use the five-stage inbound wall when the notebook defines it.
+
+    Falls back to the original §7 ``input_guard`` so this module still works
+    against a namespace built from the pre-pipeline cells alone.
+    """
+    pipeline = namespace.get("guard_inbound")
+    if pipeline is not None:
+        decision = pipeline(message)
+        return decision.blocked, decision.category, decision.text
+    blocked, category = namespace["input_guard"](message)
+    return blocked, category, namespace["normalize_text"](message)
+
+
+def _outbound_guard(namespace: dict[str, Any], text: str, language: str) -> tuple[str, str]:
+    """Stage 5 when available, otherwise the original canary-only output guard."""
+    return (namespace.get("stage_output_guard") or namespace["output_guard"])(text, language)
+
+
+def canonicalize_product(value: str, *, catalog: dict[str, dict],
+                         aliases: dict[str, list[str]] | None = None) -> str:
+    """Resolve exact, catalog-controlled identities; never fuzzy-match model text.
+
+    NFKC, casefold and collapsed whitespace handle harmless presentation changes.
+    Unknown, ambiguous or malformed identities fail closed. The returned value is
+    an actual catalogue key, so membership checks and replay keys share one SKU.
+    """
+    def normalized(text: str) -> str:
+        if not isinstance(text, str) or not 1 <= len(text) <= 80:
+            raise ValueError("invalid_product")
+        text = unicodedata.normalize("NFKC", text).casefold()
+        if any(unicodedata.category(char).startswith("C") and not char.isspace()
+               for char in text):
+            raise ValueError("invalid_product")
+        result = " ".join(text.split())
+        if not result:
+            raise ValueError("invalid_product")
+        return result
+
+    wanted = normalized(value)
+    identities: dict[str, str] = {}
+    for sku, item in catalog.items():
+        names = [sku, item["ar"], item["en"], *(aliases or {}).get(sku, [])]
+        for name in names:
+            key = normalized(name)
+            if key in identities and identities[key] != sku:
+                raise ValueError("ambiguous_catalog_product")
+            identities[key] = sku
+    if wanted not in identities:
+        raise ValueError("unknown_product")
+    return identities[wanted]
+
+
+def _existing_return(namespace: dict[str, Any], session: Any, order_id: str, product: str):
+    """Idempotency key: one open return per (customer, order, product).
+
+    A retried request therefore replays the original return id instead of
+    creating a second record, across runs as well as inside one loop.
+    """
+    for record in namespace["RETURNS"]:
+        if (record.get("user_id"), record.get("order_id")) != (session.user_id, order_id):
+            continue
+        existing_product = canonicalize_product(record.get("product"),
+                                               catalog=namespace["CATALOG"],
+                                               aliases=namespace.get("ALIASES"))
+        if existing_product == product:
+            return record
+    return None
 
 
 def bind_tool_client(
@@ -240,16 +440,16 @@ def ask_with_native_tools(
     seen_call_ids: set[str] = set()
     observed_calls = 0
 
-    def log(name: str, iteration: int, ok: bool, detail: str):
+    def log(name: str, iteration: int, ok: bool, detail: str, **facts):
         entry = {"tool": name if name in RISK_CLASSES else "unknown",
                  "risk_class": RISK_CLASSES.get(name, "unknown"),
                  "iteration": iteration, "ok": ok, "detail": detail,
-                 "prompt_version": PROMPT_VERSION}
+                 "prompt_version": PROMPT_VERSION, **facts}
         run_log.append(entry)
         audit.append(entry)
 
     def reply(text: str, *, blocked: bool = False, category: str = "ok", intent="native_tools"):
-        guarded, output_category = namespace["output_guard"](text, lang)
+        guarded, output_category = _outbound_guard(namespace, text, lang)
         return namespace["Reply"](
             text=guarded, language=lang, intent=intent, blocked=blocked,
             guard_category=category, output_guard_category=output_category,
@@ -265,7 +465,7 @@ def ask_with_native_tools(
                 if lang == "ar" else "No action was completed. Please clarify the request or contact a human.")
         return reply(text, blocked=True, category=category)
 
-    blocked, category = namespace["input_guard"](message)
+    blocked, category, guarded_message = _inbound_guard(namespace, message)
     if blocked:
         return reply(namespace["refusal"](lang), blocked=True, category=category, intent="blocked")
     evidence = namespace["rendered_grounding"](lang)
@@ -274,7 +474,7 @@ def ask_with_native_tools(
                     TOOL_PROMPT + "\nGROUNDING DATA:\n" + evidence
                     + "\nFAQ_ANSWER_TEMPLATES:\n" + "\n".join(trusted_faq)
                 )},
-                {"role": "user", "content": namespace["normalize_text"](message)}]
+                {"role": "user", "content": guarded_message}]
 
     for iteration in range(1, max_iterations + 1):
         try:
@@ -293,7 +493,7 @@ def ask_with_native_tools(
         if not calls:
             if confirmations:
                 return reply("\n".join(confirmations))
-            guarded, output_category = namespace["output_guard"](response.text, lang)
+            guarded, output_category = _outbound_guard(namespace, response.text, lang)
             if output_category != "ok":
                 return reply(response.text, blocked=True, category=output_category)
             normalized = namespace["normalize_text"](guarded)
@@ -309,18 +509,47 @@ def ask_with_native_tools(
         if observed_calls > max_tool_calls:
             log("unknown", iteration, False, "tool_limit")
             return stop("tool_limit")
+        # Envelope first (permissive, provider-shaped), arguments second (strict).
         try:
-            call = NativeToolCall.model_validate(calls[0])
-            name = call.function.name
-            if name not in ARGUMENT_SCHEMAS:
-                raise ValueError("unknown_tool")
-            arguments = ARGUMENT_SCHEMAS[name].model_validate_json(call.function.arguments)
-            if call.id in seen_call_ids:
-                raise ValueError("duplicate_call_id")
-            seen_call_ids.add(call.id)
-        except (ValidationError, ValueError, TypeError):
-            log("unknown", iteration, False, "invalid_tool_request")
+            call = normalize_tool_call(calls[0], iteration=iteration)
+        except (ToolEnvelopeError, ValidationError, TypeError) as exc:
+            record_tool_diagnostic("normalize_envelope", calls[0], error=exc)
+            log("unknown", iteration, False, "invalid_tool_envelope")
             return stop("invalid_tool_request")
+
+        name = call.name
+        if name not in TOOL_WHITELIST:
+            record_tool_diagnostic("tool_whitelist", calls[0], normalized=call)
+            log(name, iteration, False, "unknown_tool")
+            return stop("invalid_tool_request")
+        if call.id in seen_call_ids:
+            record_tool_diagnostic("duplicate_call_id", calls[0], normalized=call)
+            log(name, iteration, False, "duplicate_call_id")
+            return stop("invalid_tool_request")
+        try:
+            arguments = ARGUMENT_SCHEMAS[name].model_validate_json(call.arguments)
+        except (ValidationError, ValueError, TypeError) as exc:
+            record_tool_diagnostic("tool_arguments", calls[0], error=exc, normalized=call)
+            log(name, iteration, False, "invalid_tool_arguments")
+            return stop("invalid_tool_request")
+        seen_call_ids.add(call.id)
+
+        product_facts = {}
+        if name == "create_return":
+            # Strict schema validation above precedes normalization. Only the
+            # application's catalogue supplies aliases and product identities.
+            try:
+                original_product = arguments.product
+                canonical_product = canonicalize_product(
+                    original_product, catalog=namespace["CATALOG"],
+                    aliases=namespace.get("ALIASES"))
+                arguments = ARGUMENT_SCHEMAS[name].model_validate({
+                    **arguments.model_dump(), "product": canonical_product})
+                product_facts = {"product_input": original_product,
+                                 "product_canonical": canonical_product}
+            except (ValueError, TypeError):
+                log(name, iteration, False, "invalid_product")
+                return stop("invalid_product")
 
         terminal = False
         detail = "executed"
@@ -337,7 +566,17 @@ def ask_with_native_tools(
                     return stop("return_not_authorized_by_application")
                 # The model never receives or selects the Session argument.
                 session.authorize_order(arguments.order_id)
-                if arguments.product not in namespace["ORDERS"][arguments.order_id]["items"]:
+                try:
+                    owned_products = {
+                        canonicalize_product(item, catalog=namespace["CATALOG"],
+                                             aliases=namespace.get("ALIASES"))
+                        for item in namespace["ORDERS"][arguments.order_id]["items"]
+                    }
+                except (ValueError, TypeError, KeyError):
+                    # A malformed catalogue/order item fails closed as an
+                    # authorization decision; no side effect is permitted.
+                    raise PermissionError("product_catalog_mismatch") from None
+                if arguments.product not in owned_products:
                     raise PermissionError("product_not_in_order")
                 if arguments.needs_human:
                     result = namespace["escalate_to_human"]("return_needs_human", session, iteration=iteration)
@@ -349,8 +588,13 @@ def ask_with_native_tools(
                                     else f"Escalated to a human. Case {result['case_id']}.")
                 else:
                     fingerprint = (arguments.order_id, arguments.product)
-                    if fingerprint in seen_returns:
-                        result = seen_returns[fingerprint]
+                    prior = seen_returns.get(fingerprint) or _existing_return(
+                        namespace, session, arguments.order_id, arguments.product)
+                    if prior is not None:
+                        # Idempotent replay: the same order and item never
+                        # produce a second return, in this run or a retry.
+                        result = prior
+                        seen_returns[fingerprint] = prior
                         detail = "reused_result"
                     elif seen_returns:
                         log(name, iteration, False, "one_return_per_run")
@@ -368,22 +612,24 @@ def ask_with_native_tools(
                 confirmation = (f"تم تحويلك لموظف. رقم الحالة {result['case_id']}." if lang == "ar"
                                 else f"Escalated to a human. Case {result['case_id']}.")
         except PermissionError:
-            log(name, iteration, False, "authorization_denied")
+            log(name, iteration, False, "authorization_denied", **product_facts)
             if confirmations:
                 return stop("authorization")
             return reply(namespace["refusal"](lang), blocked=True, category="authorization")
         except Exception:
             log(name, iteration, False, "tool_failed")
             return stop("tool_failed")
-        log(name, iteration, True, detail)
+        log(name, iteration, True, detail, **product_facts)
         if confirmation not in confirmations:
             confirmations.append(confirmation)
         if terminal:
             return reply("\n".join(confirmations), intent="escalate")
         # Only the authorized result is shared; identity fields stay in the app.
         public_result = {k: v for k, v in result.items() if k != "user_id"}
+        # Echo a canonical envelope, not the provider's decorated original.
         messages.append({"role": "assistant", "content": assistant["content"],
-                         "tool_calls": [call.model_dump()]})
+                         "tool_calls": [{"id": call.id, "type": "function", "function": {
+                             "name": call.name, "arguments": call.arguments}}]})
         messages.append({"role": "tool", "tool_call_id": call.id,
                          "content": json.dumps({"ok": True, "result": public_result}, ensure_ascii=False)})
     log("unknown", max_iterations, False, "iteration_limit")
