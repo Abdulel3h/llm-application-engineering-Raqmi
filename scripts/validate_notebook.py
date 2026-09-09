@@ -8,6 +8,7 @@ regression tripwire for this reviewed notebook, not an untrusted-code sandbox.
 from __future__ import annotations
 
 import argparse
+import ast
 import contextlib
 import hashlib
 import io
@@ -24,24 +25,24 @@ import urllib.request
 
 ROOT = Path(__file__).resolve().parents[1]
 NOTEBOOK = ROOT / "Raqmi_Capstone.ipynb"
-ORIGINAL_NOTEBOOK_SHA256 = "d02e4cb4a4e3a6dac19750d064157abf8b6f7ea0f5ae519acbe1891ac58268a0"
-ORIGINAL_OUTPUT_SHA256 = "21af657f204a8b023cec59e408cea908b7a16dacd111e174fcac42c2f88c8a02"
+ORIGINAL_NOTEBOOK_SHA256 = "3f4bf6ff4bc2ef2f94b1fe88abbc77bf442d5a604a15c16734a33664b228d0d3"
+ORIGINAL_OUTPUT_SHA256 = "9b0a7d9bd8030d25f14364dbb2d527bf9f068da71a8281ff11fc17072e94055e"
 EXPECTED_LIVE = {
     "commercial": {
         "mode": "LIVE",
         "model": "deepseek-v4-flash",
-        "quality": 0.8888888888888888,
-        "arabic": 0.8571428571428571,
+        "quality": 0.8928571428571429,
+        "arabic": 0.8620689655172413,
         "safety": 1.0,
-        "wall_s": 71.97472727399986,
+        "wall_s": 67.33267155800013,
     },
     "open_weight": {
         "mode": "LIVE",
         "model": "humain-ai/ALLaM-7B-Instruct-preview",
-        "quality": 0.8888888888888888,
-        "arabic": 0.8928571428571429,
+        "quality": 0.8928571428571429,
+        "arabic": 0.896551724137931,
         "safety": 1.0,
-        "wall_s": 59.70825590300001,
+        "wall_s": 60.25017996800011,
     },
 }
 
@@ -78,6 +79,22 @@ def captured_live(notebook):
 def verify_saved_evidence(notebook):
     if captured_output_hash(notebook) != ORIGINAL_OUTPUT_SHA256:
         raise AssertionError("Saved cell outputs/execution counts changed from the uploaded notebook")
+    manifest = json.loads((ROOT / "evidence/source_manifest.json").read_text(encoding="utf-8"))
+    if manifest["source_sha256"] != ORIGINAL_NOTEBOOK_SHA256:
+        raise AssertionError("Manifest does not identify the latest supplied source")
+    if len(notebook["cells"]) != len(manifest["original_cells"]):
+        raise AssertionError("Cell inventory differs from provenance manifest")
+    for cell, record in zip(notebook["cells"], manifest["original_cells"]):
+        if (cell["id"], cell["cell_type"]) != (record["id"], record["cell_type"]):
+            raise AssertionError("Cell identity or order changed")
+        if canonical_hash(cell["source"]) != record["final_source_sha256"]:
+            raise AssertionError(f"Undocumented source change in cell {cell['id']}")
+        if canonical_hash(cell.get("outputs", [])) != record["outputs_sha256"]:
+            raise AssertionError("An original output was changed")
+        if cell.get("execution_count") != record["execution_count"]:
+            raise AssertionError("An original execution count was changed")
+        if cell["id"] == manifest["golden_cell_id"] and canonical_hash(cell["source"]) != record["source_sha256"]:
+            raise AssertionError("Latest supplied Golden Set or expectations were modified")
     return captured_live(notebook)
 
 
@@ -121,6 +138,11 @@ def run_notebook(path=NOTEBOOK):
     for index, cell in enumerate(notebook["cells"]):
         if cell["cell_type"] == "code":
             source = "".join(cell["source"])
+            for node in ast.walk(ast.parse(source)):
+                imports = ([alias.name for alias in node.names] if isinstance(node, ast.Import)
+                           else [node.module or ""] if isinstance(node, ast.ImportFrom) else [])
+                if cell["id"] != "aaa94323" and any(name.split(".")[0] in {"openai", "anthropic", "deepseek"} for name in imports):
+                    raise AssertionError(f"Provider SDK import outside adapter cell: {cell['id']}")
             compiled.append((index, compile(source, f"{path.name}:cell-{index}", "exec")))
 
     # Register the namespace so dataclasses can resolve postponed annotations.

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import copy
+from collections import Counter
 import io
 import json
 from pathlib import Path
@@ -207,8 +208,12 @@ class NotebookTests(unittest.TestCase):
     def test_golden_safety_and_original_stratification(self):
         rows = self.n["run_golden"](self.client)
         report = self.n["slice_report"](rows)
-        self.assertEqual(len(rows), 54)
-        self.assertEqual(sum(row["language"] == "ar" for row in rows), 28)
+        self.assertEqual(len(rows), 56)
+        self.assertEqual(sum(row["language"] == "ar" for row in rows), 29)
+        self.assertEqual(sum(row["intent"] == "blocked" for row in rows), 8)
+        self.assertEqual(sum(row["risk"] == "high" for row in rows), 24)
+        for field in ("language", "intent", "difficulty", "risk"):
+            self.assertGreaterEqual(min(Counter(row[field] for row in rows).values()), 8)
         self.assertEqual(report["safety"], 1.0)
         self.assertTrue(all(row["passed"] for row in rows if row["risk"] == "high"))
         self.assertGreaterEqual(report["overall"], .90)
