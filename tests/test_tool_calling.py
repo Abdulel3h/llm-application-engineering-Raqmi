@@ -108,7 +108,7 @@ class NativeToolTests(unittest.TestCase):
         reply, transport, _ = self.run_script([
             completion(tool_call("create_return", return_arguments())),
             completion(text="Invented confirmation R-99999"),
-        ], message="Return headphones from order 1024 because they are defective")
+        ], message="Return headphones from order 1024 because they are defective", allow_return=True)
         self.assertEqual(len(self.ns["RETURNS"]), 1)
         self.assertIn("R-1001", reply.text)
         self.assertNotIn("R-99999", reply.text)
@@ -121,7 +121,9 @@ class NativeToolTests(unittest.TestCase):
             ("create_return", return_arguments(order_id="5521", product="tablet")),
         ):
             with self.subTest(name=name):
-                reply, transport, _ = self.run_script([completion(tool_call(name, arguments))])
+                reply, transport, _ = self.run_script(
+                    [completion(tool_call(name, arguments))], allow_return=name == "create_return",
+                )
                 self.assertTrue(reply.blocked)
                 self.assertEqual(reply.guard_category, "authorization")
                 self.assertEqual(len(transport.requests), 1)
@@ -132,7 +134,7 @@ class NativeToolTests(unittest.TestCase):
     def test_wrong_item_return_is_denied(self):
         reply, _, _ = self.run_script([
             completion(tool_call("create_return", return_arguments(product="tablet"))),
-        ])
+        ], allow_return=True)
         self.assertEqual(reply.guard_category, "authorization")
         self.assert_no_actions()
 
@@ -152,7 +154,9 @@ class NativeToolTests(unittest.TestCase):
         ]
         for name, arguments in cases:
             with self.subTest(name=name, arguments=arguments):
-                reply, _, _ = self.run_script([completion(tool_call(name, arguments))])
+                reply, _, _ = self.run_script(
+                    [completion(tool_call(name, arguments))], allow_return=name == "create_return",
+                )
                 self.assertEqual(reply.guard_category, "invalid_tool_request")
                 self.assert_no_actions()
                 self.assertEqual(self.ns["TOOL_LOG"], [])
@@ -160,18 +164,22 @@ class NativeToolTests(unittest.TestCase):
     def test_needs_human_escalates_and_ends_loop(self):
         reply, transport, _ = self.run_script([
             completion(tool_call("create_return", return_arguments(needs_human=True))),
-        ])
+        ], allow_return=True)
         self.assertEqual(reply.intent, "escalate")
         self.assertIn("H-2001", reply.text)
         self.assertEqual(len(self.ns["RETURNS"]), 0)
         self.assertEqual(len(self.ns["ESCALATIONS"]), 1)
         self.assertEqual(len(transport.requests), 1)
         self.assertTrue(any(x["risk_class"] == "terminal" for x in reply.tool_calls))
+        self.assertEqual([(entry["tool"], entry["risk_class"], entry["detail"]) for entry in reply.tool_calls], [
+            ("escalate_to_human", "terminal", "return_needs_human"),
+        ])
+        self.assertEqual([entry["tool"] for entry in self.ns["TOOL_LOG"]], ["escalate_to_human"])
 
     def test_needs_human_cannot_bypass_ownership(self):
         reply, _, _ = self.run_script([completion(tool_call(
             "create_return", return_arguments(order_id="5521", product="tablet", needs_human=True),
-        ))])
+        ))], allow_return=True)
         self.assertEqual(reply.guard_category, "authorization")
         self.assert_no_actions()
 
@@ -188,7 +196,7 @@ class NativeToolTests(unittest.TestCase):
             completion(tool_call("create_return", return_arguments())),
             completion(tool_call("create_return", return_arguments(reason="other"), "call-2")),
             completion(text="Done"),
-        ])
+        ], allow_return=True)
         self.assertEqual(len(self.ns["RETURNS"]), 1)
         self.assertEqual(len(transport.requests), 3)
         self.assertEqual(reply.tool_calls[-1]["detail"], "reused_result")
@@ -198,7 +206,7 @@ class NativeToolTests(unittest.TestCase):
         reply, _, _ = self.run_script([
             completion(tool_call("create_return", return_arguments())),
             completion(tool_call("create_return", return_arguments(order_id="1025", product="keyboard"), "call-2")),
-        ])
+        ], allow_return=True)
         self.assertEqual(len(self.ns["RETURNS"]), 1)
         self.assertEqual(reply.guard_category, "one_return_per_run")
         self.assertIn("R-1001", reply.text)
@@ -207,14 +215,14 @@ class NativeToolTests(unittest.TestCase):
         reply, _, _ = self.run_script([completion(
             tool_call("create_return", return_arguments()),
             tool_call("lookup_order", {"order_id": "5521"}, "call-2"),
-        )])
+        )], allow_return=True)
         self.assertEqual(reply.guard_category, "invalid_tool_batch")
         self.assertEqual(self.ns["TOOL_LOG"], [])
         self.assert_no_actions()
 
     def test_duplicate_call_id_is_rejected_without_second_mutation(self):
         repeated = completion(tool_call("create_return", return_arguments()))
-        reply, _, _ = self.run_script([repeated, repeated])
+        reply, _, _ = self.run_script([repeated, repeated], allow_return=True)
         self.assertEqual(reply.guard_category, "invalid_tool_request")
         self.assertEqual(len(self.ns["RETURNS"]), 1)
         self.assertIn("R-1001", reply.text)
@@ -232,7 +240,7 @@ class NativeToolTests(unittest.TestCase):
         reply, _, _ = self.run_script([
             completion(tool_call("create_return", return_arguments())),
             RuntimeError("private-provider-diagnostic"),
-        ])
+        ], allow_return=True)
         self.assertEqual(len(self.ns["RETURNS"]), 1)
         self.assertIn("R-1001", reply.text)
         self.assertEqual(reply.guard_category, "provider_failure")
@@ -259,6 +267,85 @@ class NativeToolTests(unittest.TestCase):
             self.assertEqual(set(schema["required"]), set(schema["properties"]))
             self.assertNotIn("session", schema["properties"])
             self.assertNotIn("user_id", schema["properties"])
+
+    def test_default_denies_unsolicited_or_unconfirmed_returns(self):
+        for message in (
+            "What is the price of headphones?",
+            "Return headphones from order 1024 because they are defective",
+        ):
+            with self.subTest(message=message):
+                reply, transport, _ = self.run_script([
+                    completion(tool_call("create_return", return_arguments())),
+                ], message=message)
+                self.assertTrue(reply.blocked)
+                self.assertEqual(reply.guard_category, "return_not_authorized_by_application")
+                self.assertEqual(len(transport.requests), 1)
+                self.assertEqual(self.ns["TOOL_LOG"], [])
+                self.assert_no_actions()
+
+    def test_model_arguments_cannot_supply_application_consent(self):
+        reply, _, _ = self.run_script([
+            completion(tool_call("create_return", return_arguments(allow_return=True))),
+        ])
+        self.assertEqual(reply.guard_category, "invalid_tool_request")
+        self.assert_no_actions()
+        with self.assertRaisesRegex(ValueError, "application boolean"):
+            self.run_script([], allow_return="true")
+
+    def test_no_tool_transaction_claims_are_rejected_bilingually(self):
+        for text, message in (
+            ("Your return was successfully created.", "Please return headphones from order 1024"),
+            ("I have escalated your case to a human.", "I need a human"),
+            ("Order 1024 is delivered.", "Where is order 1024?"),
+            ("تم إنشاء طلب الإرجاع بنجاح.", "أبي أرجع السماعة من الطلب 1024"),
+            ("تم تحويلك لموظف.", "أبي موظف"),
+        ):
+            with self.subTest(text=text):
+                reply, _, _ = self.run_script([completion(text=text)], message=message, allow_return=True)
+                self.assertTrue(reply.blocked)
+                self.assertEqual(reply.guard_category, "unverified_answer")
+                self.assertNotEqual(reply.text, text)
+                self.assert_no_actions()
+
+    def test_only_trusted_faq_templates_can_be_returned_without_a_tool(self):
+        for text, message in (
+            ("Eligible products can be returned within 14 days.", "What is the return window?"),
+            ("يمكن إرجاع المنتجات المؤهلة خلال 14 يوماً.", "كم مدة الإرجاع؟"),
+        ):
+            with self.subTest(text=text):
+                reply, transport, _ = self.run_script([completion(text=text)], message=message)
+                self.assertFalse(reply.blocked)
+                self.assertEqual(reply.intent, "faq")
+                self.assertEqual(reply.text, text)
+                self.assertIn(text, transport.requests[0][1]["messages"][0]["content"])
+                self.assert_no_actions()
+        for text in (
+            "The return window is 24 days.",
+            "Eligible products can be returned within 14 days. Your return was created.",
+            "Your order was shipped.",
+        ):
+            with self.subTest(unverified_text=text):
+                reply, _, _ = self.run_script([completion(text=text)])
+                self.assertTrue(reply.blocked)
+                self.assertEqual(reply.guard_category, "unverified_answer")
+
+    def test_malformed_tool_call_containers_fail_closed(self):
+        for calls in ({}, "", False, 0, {"name": "create_return"}):
+            with self.subTest(calls=calls):
+                response = completion(text="Your return was successfully created.")
+                response["choices"][0]["message"]["tool_calls"] = calls
+                reply, _, _ = self.run_script([response], allow_return=True)
+                self.assertTrue(reply.blocked)
+                self.assertEqual(reply.guard_category, "provider_failure")
+                self.assert_no_actions()
+
+    def test_malformed_provider_message_fails_without_mutation(self):
+        for response in ({}, {"choices": []}, {"choices": [{"message": None}]}):
+            with self.subTest(response=response):
+                reply, _, _ = self.run_script([response], allow_return=True)
+                self.assertTrue(reply.blocked)
+                self.assertEqual(reply.guard_category, "provider_failure")
+                self.assert_no_actions()
 
     def test_external_plain_http_and_embedded_credentials_are_rejected(self):
         embedded_credentials = "https://name:" + "password@example.test"
