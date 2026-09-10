@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1440" height="560" viewBox="0 0 1440 560" fill="none" role="img" aria-labelledby="title description">
+  <title id="title">Raqmi — Retail support that knows when to act.</title>
+  <desc id="description">A dark navy and teal editorial banner for an Arabic-first retail support case study. Arabic-first answers, application-authorized actions, inspectable evidence. Decorative R monogram on the right.</desc>
+  <defs>
+    <linearGradient id="background" x1="0" y1="0" x2="1440" y2="560" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#0B1220"/><stop offset="1" stop-color="#112C36"/>
+    </linearGradient>
+    <linearGradient id="accent" x1="1050" y1="160" x2="1280" y2="400" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#99F6E4"/><stop offset="1" stop-color="#2DD4BF"/>
+    </linearGradient>
+  </defs>
+  <rect width="1440" height="560" rx="28" fill="url(#background)"/>
+  <path d="M960 0V560M1440 112H960M1440 448H960" stroke="#31505C" stroke-opacity="0.45"/>
+  <circle cx="1190" cy="280" r="188" stroke="#31505C"/>
+  <circle cx="1190" cy="280" r="154" stroke="#31505C" stroke-dasharray="3 12"/>
+  <rect x="1042" y="132" width="296" height="296" rx="72" fill="#102830" stroke="#3B696C"/>
+  <path d="M1114 370V190H1194C1232 190 1254 210 1254 240C1254 269 1234 286 1206 289L1264 370H1220L1165 292H1154V370H1114ZM1154 224V259H1190C1206 259 1215 253 1215 241C1215 230 1206 224 1190 224H1154Z" fill="url(#accent)"/>
+  <circle cx="1338" cy="132" r="8" fill="#5EEAD4"/>
+  <g font-family="Arial, Helvetica, sans-serif">
+    <text x="72" y="80" fill="#5EEAD4" font-size="18" font-weight="700" letter-spacing="4">RAQMI / PRODUCT CASE STUDY</text>
+    <text x="68" y="196" fill="#F8FAFC" font-size="64" font-weight="700" letter-spacing="-2">Retail support that</text>
+    <text x="68" y="274" fill="#F8FAFC" font-size="64" font-weight="700" letter-spacing="-2">knows when to act.</text>
+    <text x="72" y="342" fill="#B8C9D6" font-size="24">Arabic-first answers. Application-authorized actions.</text>
+    <text x="72" y="380" fill="#B8C9D6" font-size="24">Inspectable evidence.</text>
+    <path d="M72 438H878" stroke="#31505C"/>
+    <text x="72" y="486" fill="#5EEAD4" font-size="16" font-weight="700" letter-spacing="2">GROUND ANSWERS</text>
+    <text x="355" y="486" fill="#5EEAD4" font-size="16" font-weight="700" letter-spacing="2">AUTHORIZE ACTIONS</text>
+    <text x="666" y="486" fill="#5EEAD4" font-size="16" font-weight="700" letter-spacing="2">SHOW EVIDENCE</text>
+  </g>
+</svg>

@@ -1,163 +1,235 @@
-# Raqmi — Bilingual AI Retail Support
+<p align="center">
+  <img src="assets/branding/hero.svg" alt="Raqmi — Retail support that knows when to act. Arabic-first answers. Application-authorized actions. Inspectable evidence." width="100%">
+</p>
 
-An Arabic-first retail-support assistant for a fictional Saudi store. It answers grounded catalogue and policy questions, looks up an authenticated customer's orders, creates authorised return requests through native model tool calls, refuses prompt injection and cross-user actions, and escalates what it cannot verify.
+<h1 align="center">Raqmi · Bilingual AI Retail Support</h1>
 
-**Trainee:** Abdulelah Alkhathami
-**Course:** LLM Application Engineering · SDAIA Academy
-**Programme:** SDA-AIE-213 · هندسة تطبيقات النماذج اللغوية الكبيرة
-**Cohort:** 06–09 September 2026 · **Track D — Retail Order Support**
+<p align="center"><strong>From a customer question to a verified answer—or an authorized action.</strong><br>
+An Arabic-first product engineering case study for a fictional Saudi store.</p>
 
-**Official notebook:** [Raqmi_Capstone.ipynb](Raqmi_Capstone.ipynb) — the executed Google Colab run: 87 cells, all 47 code cells executed sequentially (counts 1–47) against live DeepSeek and live ALLaM served by vLLM. Its final cell reports **FINAL SUBMISSION READINESS: PASS**.
+<p align="center">
+  <img src="https://img.shields.io/badge/languages-AR%20%2F%20EN-0F766E?style=flat-square" alt="Arabic and English">
+  <img src="https://img.shields.io/badge/artifact-executed%20Colab-334155?style=flat-square" alt="Executed Colab notebook">
+  <img src="https://img.shields.io/badge/evidence-LIVE%20%2B%20offline-334155?style=flat-square" alt="Live and offline evidence, reported separately">
+</p>
 
-[Evaluation](EVALUATION_REPORT.md) · [Benchmarks](BENCHMARKS.md) · [Rubric map](RUBRIC_MAP.md) · [Tool calling](TOOL_CALLING.md) · [Guardrails](GUARDRAILS.md) · [Decisions](DECISIONS.md) · [Provenance](SOURCE_PROVENANCE.md)
+<p align="center">
+  <a href="Raqmi_Capstone.ipynb">Explore the notebook</a> ·
+  <a href="#live-evaluation-metrics">Inspect the results</a> ·
+  <a href="#demo-flow">Walk through the demo</a> ·
+  <a href="#quick-start">Run it yourself</a>
+</p>
 
-## Problem
+> **The design principle:** the model proposes a tool call; application code decides whether it may execute. Guardrails add protection, while authorization remains an independent boundary.
 
-Retail support mixes repeatable factual questions with actions that change a customer's account. Fluent language alone is not enough: a price needs evidence, an order needs authorization, and an uncertain request needs a human. Raqmi separates model-assisted language handling from application-owned validation and authorization, so a model mistake cannot become a security failure.
+Built by **Abdulelah Alkhathami** for **LLM Application Engineering · SDAIA Academy**, programme **SDA-AIE-213**, cohort **06–09 September 2026**, **Track D — Retail Order Support**.
 
-The catalogue, customers, orders and return records are fictional in-memory capstone data. Escalation opens a local case rather than contacting a real support desk.
+## Problem → Solution
+
+Retail support combines factual questions with account-sensitive actions. Customers need a clear answer in their language; support teams need the answer to reflect store policy and the action to respect account ownership.
+
+| Customer problem | Raqmi's solution | Implemented boundary |
+|---|---|---|
+| “What does the store policy say?” | Ground answers in the supplied catalogue and policies | Unverified answers can escalate |
+| “Where is my order?” | Look up the order for the current session | Check ownership before reading |
+| “Return this defective item.” | Extract a structured request and execute an authorized return | Validate fields, ownership, item membership and application consent |
+| “Show me another customer's order.” | Refuse the request | Authorization runs outside the LLM, even when it requests the tool |
+| “I need someone to help.” | Open an escalation case | A terminal tool ends the workflow |
+
+**Scope:** a notebook-based capstone with fictional, in-memory catalogue, customer, order and return data. Escalation creates a local case; it does not contact a real support desk.
+
+## How it works
+
+1. **Prepare the message.** Normalize Arabic/English text, check injection patterns, mask supported PII and apply a lexical safety classifier.
+2. **Choose a bounded workflow.** The router path handles intents and grounded answers. A separate native tool loop accepts provider-issued `tool_calls`.
+3. **Validate before acting.** Application code validates arguments, resolves catalogue identities and checks the current session's permissions.
+4. **Return a verified result.** Tool results go back to the model as `role: tool` messages. The native path renders transaction confirmations from executed results, and the outbound guard checks the reply.
+5. **Make uncertainty visible.** Unsupported requests escalate; denied actions and failed evaluation cases remain inspectable.
+
+The Golden Set compares the **router path**. Native tool calling has its **own captured DeepSeek transcripts**; its success is not inferred from the router score.
 
 ## Architecture
 
 ```mermaid
 flowchart TD
-    U[Arabic or English message] --> G[Normalization, injection guard, PII masking, safety classifier]
-    G --> R[Router and deterministic routing policy]
-    G --> N[Native tool workflow]
-    R <--> L[LLMClient boundary]
+    U["Arabic / English message"] --> G["Inbound guards"]
+    G --> R["Router + routing policy"]
+    G --> N["Native tool loop"]
+    R <--> L["LLMClient · DeepSeek / ALLaM"]
     N <--> L
-    L <--> D[DeepSeek API]
-    L <--> A[ALLaM via local vLLM]
-    R --> F[Catalogue and policy grounding]
-    N --> V[Strict arguments and canonical product identity]
-    V --> S[Session ownership and order-item membership]
-    S --> T[Application tools]
-    R --> T
-    T --> O[Outbound guard]
+    R --> F["Catalogue + policy grounding"]
+    R --> V["Application validation + authorization"]
+    N --> V
+    V -->|"Allowed"| T["Lookup / return / escalation"]
+    V -->|"Denied"| O["Outbound guard"]
+    T --> O
     F --> O
-    O --> Q[Reply or human escalation]
+    O --> Q["Verified reply / refusal / local case"]
 ```
 
-Inbound guards → router or native tool loop → model boundary → application checks → grounded or tool result → outbound guard → reply. The model proposes; the application decides.
-
-| Component | Implementation |
+| Layer | Implementation |
 |---|---|
-| **Commercial backend** | `deepseek-v4-flash` through the DeepSeek API |
-| **Open-weight backend** | `humain-ai/ALLaM-7B-Instruct-preview`, served locally by **vLLM** on a Colab Tesla T4 (FP16, 1024-token context, eager mode) behind an OpenAI-compatible endpoint |
-| **Model boundary** | One `LLMClient` abstraction; provider specifics confined to the adapter section |
-| **Bilingual design** | Arabic and English throughout: catalogue names, colloquial requests, guard patterns, Golden Set, structured-output corpus and judge corpus |
-| **Native function calling** | Model `tool_calls` → envelope normalization → whitelist → strict Pydantic → catalogue canonicalization → session authorization → execution → `role: tool` result → final answer |
-| **Authorization** | `Session.authorize_order()` in deterministic application code. The model cannot set identity, ownership, product membership or a return ID |
-| **Structured outputs** | Pydantic `ReturnRequest` with evidence and ownership checks, bounded model retry/repair, then a safe application repair |
-| **Guardrails** | Five stages: normalization, deterministic injection guard, PII masking, lexical safety classifier, outbound wall |
-| **Evaluation** | 56-case Golden Set, per-case failure reporting, deterministic safety checks, slice-based regression gate |
-| **Reliability** | `ResilientClient` retry and fallback, exercised by scripted 429 and outage drills |
+| Provider boundary | `LLMClient` keeps provider-specific behavior in adapters |
+| Commercial backend | `deepseek-v4-flash` through the DeepSeek API |
+| Open-weight backend | `humain-ai/ALLaM-7B-Instruct-preview` via local vLLM; captured on a Colab Tesla T4, FP16, 1024-token context, eager mode |
+| Domain contracts | Pydantic schemas, including `ReturnRequest` |
+| Tool implementation | [raqmi_tool_calling.py](raqmi_tool_calling.py), also embedded byte-identically in the notebook |
+| Reliability | `ResilientClient` retry/fallback, verified with scripted 429 and outage drills |
+| Evaluation | Golden Set, failed-case reporter, structured-output corpus, judge calibration and deterministic regression gate |
 
-| Tool | Risk class | Application control |
+### Native tool calling + authorization outside the LLM
+
+The native path normalizes the provider envelope, checks the tool whitelist, validates strict Pydantic arguments, canonicalizes product identity, then applies authorization before execution. Provider metadata such as `index` is tolerated in the envelope; unknown argument fields remain forbidden.
+
+| Tool | Allowed only when… | Result handling |
 |---|---|---|
-| `lookup_order()` | read-only | session must own the order |
-| `create_return()` | side-effecting | strict fields, catalogue-controlled product identity, ownership, item membership, application consent, idempotent replay |
-| `escalate_to_human()` | terminal | opens an in-memory case and ends the workflow |
+| `lookup_order()` | `Session.authorize_order()` confirms ownership | Return order facts without customer identity fields |
+| `create_return()` | Strict fields, owned order, catalogue item membership and application consent all pass | Application mints the return ID; canonical identity makes retries idempotent |
+| `escalate_to_human()` | Terminal escalation is requested | Create a local case and end the loop |
 
-## Where each topic lives
+The model cannot supply session identity, grant itself consent or decide ownership. Repeated call IDs, unknown tools, malformed arguments and calls beyond the loop limits are refused. **Even if an injection passes the guards and causes a sensitive tool request, the application still checks authorization.**
 
-| Topic | Notebook section | File |
-|---|---|---|
-| Scope, architecture, ADRs | §1 | [DECISIONS.md](DECISIONS.md) |
-| Versioned prompts | §2 | cell `73eaacc4` |
-| Grounding data | §3 | cell `c0a06911` |
-| Domain schemas | §4 | `ReturnRequest` |
-| Tools and authorization | §5, §9A | [TOOL_CALLING.md](TOOL_CALLING.md), `raqmi_tool_calling.py` |
-| Model boundary and backends | §6, §6A | `LLMClient`, DeepSeek + vLLM adapters |
-| Guardrails | §7, §7A, §10, §10A | [GUARDRAILS.md](GUARDRAILS.md) |
-| Router and routing policy | §8 | cell `83e57831` |
-| Golden Set | §11 | cell `31d0b2a6` |
-| Harness and failed cases | §12, §12A | cell `cf88d2d3` |
-| Guard parity on the Golden Set | §12B | cell `raqmi-guard-parity` |
-| Structured output (LIVE) | Live Structured Output Evaluation | 20 bilingual cases |
-| Judge calibration | §13 scaffold, §13A live | 36 labelled cases |
-| Regression gate | §14 | slice-based; the judge does not gate |
-| Cost, latency, caching | §15 | [BENCHMARKS.md](BENCHMARKS.md) |
-| Model comparison | §16 | [BENCHMARKS.md](BENCHMARKS.md) |
-| Reliability and fallback | §17 | scripted 429 and outage |
-| Four-part demo | §18 | grounded answer, tool action, refusal, fallback |
-| Native tool calling (LIVE) | Native Tool Calling — Live Evidence | three DeepSeek transcripts |
-| Submission readiness | Final submission check | derived from runtime variables |
-
-## Final LIVE evidence
-
-Every value below is read directly from the official executed notebook.
-
-### Golden Set and backend comparison
-
-56 cases — 29 Arabic, 27 English; intents: order status 14, FAQ 13, return 12, escalation 9, blocked 8; difficulty: easy 12, medium 16, hard 28; risk: low 11, medium 21, high 24. Every marginal stratum meets the minimum of eight.
-
-| Metric | DeepSeek | ALLaM/vLLM |
-|---|---:|---:|
-| Mode | LIVE | LIVE |
-| Overall quality | **91.07%** (51/56) | **91.07%** (51/56) |
-| Arabic slice | **89.66%** (26/29) | **89.66%** (26/29) |
-| High-risk safety | **100%** (24/24) | **100%** (24/24) |
-| Sequential wall time | **60.95 s** | **63.91 s** |
-
-Both backends matched on quality and on the Arabic slice; DeepSeek finished the sequential evaluation slightly faster. Five of 56 cases failed for each provider — all FAQ cases, **none high-risk** — and each is printed with its cause by the failed-case reporter. This is one run in one environment: it is not a general model ranking or an economic comparison.
+The captured live cross-user lookup demonstrates this boundary: DeepSeek requested order `5521`; the application returned `authorization_denied` and exposed no other customer's data. [Inspect the protocol and evidence →](TOOL_CALLING.md)
 
 ### Guardrails
 
-**32/32 attacks blocked (100%)** and **0/32 legitimate requests blocked (0% false positives)**. The five-stage wall reproduces those numbers and changes none of the 56 Golden Set answers.
-
-### Structured output — LIVE
-
-20 cases, 10 Arabic and 10 English, against DeepSeek (23.79 s). Each language: **5 first-pass valid, 1 valid after repair, 4 escalated**, with **10/10 matching the designed outcome**. Safety invariants passed: no invented order, product, reason or owner.
-
-### LLM-as-a-Judge — LIVE
-
-**n = 36, agreement = 0.778, Cohen's κ = 0.667**; target κ ≥ 0.60 **met**; 8 disagreements listed in the output. The judge is **not** the regression gate. The separate deterministic κ = 1.00 scaffold is a plumbing check and is reported apart from this.
-
-### Native tool calling — LIVE
-
-| Scenario | Result |
+| Stage | Protection |
 |---|---|
-| Authorized lookup, order 1024 | model issued `lookup_order`; executed; tool result returned; model wrote the final answer |
-| Cross-user lookup, order 5521 | **DENIED** by `authorization_denied`; no other customer's data exposed |
-| Authorized return | model issued `lookup_order` then `create_return`; **`returns_created = 1`, `return_id = R-1001`**, canonical product `headphones` |
+| Normalization | Unicode NFKC, removal of zero-width/bidi controls, whitespace cleanup |
+| Deterministic injection guard | Bilingual direct-injection patterns |
+| PII masking | Saudi mobile numbers and email addresses before provider calls |
+| Lexical safety classifier | Combinations of override, privileged-role and data-exfiltration signals |
+| Outbound wall | Prompt-canary, supported PII, internal-error and instruction-relay leakage checks |
 
-No tool-call diagnostics were recorded: every provider tool call validated. In this run DeepSeek looked the order up first and then emitted the product already lowercased, so `product_input` and `product_canonical` were both `headphones`. The case-difference path that previously failed is proven deterministically by the offline transcript and by the test suite, not by this live run.
+**Offline, deterministic evidence:** **32/32 attacks blocked**, **0/32 legitimate requests blocked**, and **0 of 56 Golden Set answers changed** by the five-stage pipeline. These corpus results do not establish universal attack resistance or a live-provider guardrail benchmark. [Guard definitions and limits →](GUARDRAILS.md)
 
-### Final demo and readiness
+### Structured outputs
 
-Four-part demo passed: grounded answer, tool-completed action, refused attack, graceful fallback. The final cell reports **FINAL SUBMISSION READINESS: PASS**, derived from runtime variables with no hard-coded results.
+A `ReturnRequest` must satisfy schema, evidence and ownership checks. Bounded model retry/repair is followed by safe application repair or escalation. Repair may fill a missing product only when the owned order contains exactly one item; it cannot invent an order, owner or unsupported reason.
 
-## Reproduce in Google Colab
+The captured **LIVE DeepSeek** evaluation contains **20 cases**, **10 Arabic and 10 English**, and took **23.79 s**:
 
-1. Open [Raqmi_Capstone.ipynb](Raqmi_Capstone.ipynb) in Google Colab.
-2. **Runtime → Change runtime type → T4 GPU** or stronger.
-3. Add `DEEPSEEK_API_KEY` in Colab Secrets and grant notebook access. Never paste the value into a cell. `HF_TOKEN` is optional. Outside Colab the same names work as environment variables.
-4. `ENABLE_LIVE_BACKENDS` ships as `True`, so no edit is needed. Set it to `False` for a no-key deterministic pass, which prints clearly labelled `DEMO_PREVIEW` / `SKIPPED` results instead.
-5. **Restart session**, then **Run all**. Live mode installs vLLM, starts ALLaM, and consumes API requests and GPU runtime. A missing provider raises rather than silently substituting deterministic numbers.
+| Outcome | Arabic | English |
+|---|---:|---:|
+| Valid on first pass | 5/10 | 5/10 |
+| Valid after repair | 1/10 | 1/10 |
+| Escalated | 4/10 | 4/10 |
+| Matched the designed outcome | 10/10 | 10/10 |
 
-The captured run retained an in-kernel TorchAudio/CUDA diagnostic warning while the fresh vLLM server process started successfully; that warning is preserved deliberately. vLLM is unpinned, so a future runtime may differ.
+Correct escalation counts as the designed outcome; this is not a claim that every input produced a valid return. Safety invariants passed: no invented order, product, reason or owner. [Evaluation details →](EVALUATION_REPORT.md#structured-output)
 
-## Local verification
+## Live evaluation metrics
+
+**Captured evidence, not a fresh rerun.** The official [executed notebook](Raqmi_Capstone.ipynb) contains **87 cells**, with all **47 code cells executed sequentially**, and reports **`FINAL SUBMISSION READINESS: PASS`**. [Source digests and provenance →](SOURCE_PROVENANCE.md)
+
+Both providers ran the same **56-case Golden Set**: **29 Arabic**, **27 English**, including **24 high-risk** cases. A pass requires matching expected blocked status, intent and a required answer substring. This is an exact-case application harness, not a comprehensive semantic-quality score.
+
+| Captured LIVE metric | DeepSeek | ALLaM / vLLM |
+|---|---:|---:|
+| Overall quality / harness pass rate | **91.07% (51/56)** | **91.07% (51/56)** |
+| Arabic slice | **89.66% (26/29)** | **89.66% (26/29)** |
+| High-risk safety slice | **100% (24/24)** | **100% (24/24)** |
+| Sequential evaluation wall time | **60.95 s** | **63.91 s** |
+
+**What failed:** five FAQ cases per provider; none in the high-risk slice. The failed-case reporter prints the causes. Both models matched on these quality measures in this run. Wall time is sequential end-to-end evaluation time, with different network/inference paths; it is not per-message latency, saturated throughput or a general model ranking.
+
+| Additional LIVE evidence | Captured outcome |
+|---|---|
+| Native authorized lookup | Order `1024`: `lookup_order` executed; tool result returned to the model |
+| Native cross-user lookup | Order `5521`: denied by application authorization |
+| Native authorized return | `lookup_order` then `create_return`; `returns_created = 1`, `return_id = R-1001`, product `headphones` |
+| Judge calibration | **n = 36**, agreement **0.778**, Cohen's **κ = 0.667**; target **κ ≥ 0.60** met; **8 disagreements** |
+
+Native tool evidence is **DeepSeek-only**. Product case canonicalization is covered offline; the live model already emitted lowercase `headphones`. The judge is **not** the regression gate; the separate deterministic **κ = 1.00** scaffold only checks plumbing.
+
+[Full evaluation report](EVALUATION_REPORT.md) · [Benchmark methodology and failed cases](BENCHMARKS.md) · [Requirement-to-evidence map](RUBRIC_MAP.md)
+
+## Demo flow
+
+Open notebook **§18** for the captured four-part demo, then **Native Tool Calling — Live Evidence** to inspect real provider requests and application decisions.
+
+| Demo moment | What to inspect | Evidence mode |
+|---|---|---|
+| Grounded answer | The supplied store facts behind the reply | §18 deterministic demo |
+| Tool-completed action | The authorized operation and resulting confirmation | §18 deterministic demo |
+| Refused attack | The refusal and its guard category | §18 deterministic demo |
+| Graceful fallback | The scripted primary failure and fallback response | §18 scripted demo; not live failover |
+| Native lookup → denial → return | `tool_calls`, validation, authorization decisions and `role: tool` messages | Captured LIVE DeepSeek transcripts |
+
+The four-part demo reports **PASS**. Read the application decision trace alongside the model text: a proposed tool call is not proof that a transaction executed.
+
+## Business value
+
+| Product capability | Intended operational value |
+|---|---|
+| Arabic-first, bilingual support | Let customers ask catalogue and order questions in their own language |
+| Grounded answers and visible escalation | Support review of uncertain answers against store facts |
+| Application-owned authorization | Keep account-sensitive reads and returns behind explicit permission checks |
+| Structured requests and idempotent returns | Produce reviewable records and avoid duplicate returns on replay |
+| Shared provider boundary and evidence | Compare deployment options without rewriting business logic |
+
+These are design benefits, **not measured customer outcomes**. There is no production adoption, support-deflection, revenue or customer-satisfaction result claimed here.
+
+The [cache experiment](BENCHMARKS.md#deterministic-scenario-experiments--not-provider-billing) illustrates **93.4% scenario cost reduction** and a **65.9% simulated prefix-cache ratio** under stated assumptions. Neither is provider billing or measured production savings; the exact cache is benchmark-only and separate from `ask()`.
+
+## Limitations
+
+- **Prototype scope:** fictional in-memory records, a narrow catalogue and local escalation; no real store or help-desk integration.
+- **Evaluation scope:** one captured environment, an exact-case Golden metric and five failed FAQ cases per provider. The judge corpus is small and single-annotator.
+- **Security scope:** lexical guards can miss novel phrasing; prompt-line matching does not catch all paraphrased leaks. PII masking does not cover national IDs, IBANs or postal addresses.
+- **Provider scope:** ALLaM native function calling is untested. Retry/fallback drills use scripted providers, not measured live outages.
+- **Economics scope:** no provider invoices, complete attempt metering, saturated throughput or measured self-host break-even; no calibrated semantic-cache tier.
+- **Reproduction scope:** vLLM is unpinned. The captured run retained a TorchAudio/CUDA diagnostic warning while the fresh server process started successfully; future runtimes may differ.
+- **Documentation history:** some entries in [DECISIONS.md](DECISIONS.md) describe earlier captures and defaults. For current results, live-mode defaults and native-tool evidence, use the final notebook, [provenance](SOURCE_PROVENANCE.md) and [evaluation report](EVALUATION_REPORT.md).
+
+## Quick start
+
+### Inspect the captured run
+
+Open [Raqmi_Capstone.ipynb](Raqmi_Capstone.ipynb) on GitHub to read its saved outputs without an API key or GPU.
+
+### Reproduce in Google Colab
+
+1. Open the notebook in Google Colab and select **Runtime → Change runtime type → T4 GPU** or stronger.
+2. Add `DEEPSEEK_API_KEY` to **Colab Secrets** and grant notebook access. `HF_TOKEN` is optional. Keep secret values out of cells; outside Colab, the same names work as environment variables.
+3. The final notebook ships with **`ENABLE_LIVE_BACKENDS = True`**. Live execution installs vLLM, starts ALLaM and consumes API requests and GPU runtime. For an offline preview, set the flag to **`False` in your working copy**; results are labelled `DEMO_PREVIEW` / `SKIPPED`.
+4. **Restart session → Run all.** A missing live provider raises an error rather than silently substituting deterministic results.
+
+### Verify locally without live providers
+
+Use **Python 3.10+**:
 
 ```bash
-python -m pip install -r requirements.txt
+git clone https://github.com/Abdulel3h/llm-application-engineering-Raqmi.git
+cd llm-application-engineering-Raqmi
+python -m venv .venv
+# macOS/Linux:
+source .venv/bin/activate
+# Windows PowerShell: .venv\Scripts\Activate.ps1
+python -m pip install -r requirements.txt pytest
 python -m pytest tests/ -q
 python scripts/validate_notebook.py
 python scripts/sync_tool_module.py --check
 python scripts/scan_secrets.py
 ```
 
-240 tests cover routing, guards, structured output and repair boundaries, judge payload isolation and κ arithmetic, failed-case reporting, the native tool protocol, provider-envelope normalization, product canonicalization, authorization and idempotency. The validator executes all 47 code cells offline with network and process operations blocked, and verifies that the captured evidence is unchanged. These use deterministic and scripted providers; they do not re-run DeepSeek, ALLaM or a GPU.
+The recorded local verification reports **240 passing tests**. The validator executes all **47 code cells offline**, blocks network/process operations and verifies that captured notebook evidence remains unchanged. Local checks do not re-run DeepSeek, ALLaM or a GPU.
 
-## Known limitations
+## Explore the evidence
 
-- Cost and cache figures — about **93.4%** scenario saving and a **65.9%** simulated prefix-cache ratio — rest on transparent scenario assumptions. **They are not provider invoices.**
-- No measured production self-host break-even. The sequential Golden wall times are not saturated GPU throughput, and no host pricing was measured.
-- **ALLaM native function calling is not claimed.** The live native tool section targets DeepSeek; ALLaM's own tool-call parsing was never exercised.
-- The deterministic judge scaffold (κ = 1.00) is a plumbing check, entirely separate from the live calibration (κ = 0.667). The judge corpus is small and single-annotator.
-- Grounding and catalogue scope are intentionally narrow. PII coverage is Saudi mobile numbers and e-mail addresses only, and the safety classifier is lexical rather than semantic.
-- The Golden metric checks expected blocked status, intent and a required substring — an exact-case harness, not a full semantic-quality measure. Five FAQ cases failed per provider.
-- Live per-case exports beyond the printed failed-case report, complete attempt metering, and a calibrated semantic-cache tier are absent.
+| Resource | Purpose |
+|---|---|
+| [Official notebook](Raqmi_Capstone.ipynb) | Executed application, evaluation and demo |
+| [Evaluation report](EVALUATION_REPORT.md) | LIVE, deterministic and scenario results |
+| [Benchmarks](BENCHMARKS.md) | Timing context, failure cases and economic assumptions |
+| [Tool calling](TOOL_CALLING.md) | Native protocol, authorization, canonicalization and bounds |
+| [Guardrails](GUARDRAILS.md) | Guard stages, corpus results and coverage limits |
+| [Rubric map](RUBRIC_MAP.md) | Course requirements mapped to implementation evidence |
+| [Provenance](SOURCE_PROVENANCE.md) | Official notebook identity and integrity checks |
+| [Branding assets](assets/branding/README.md) | Hero source, image references and visual conventions |
 
-Requirements were checked against the [official capstone](https://mohammadyusif.github.io/llm-application-engineering/capstone.html). The course links [SDAIA Academy on GitHub](https://github.com/SDAIAAcademy).
+## Contact
+
+**Abdulelah Alkhathami** · [Portfolio](https://abdulelah.de) · [GitHub](https://github.com/Abdulel3h) · [Email](mailto:me@abdulelah.de)
+
+Built for the [LLM Application Engineering capstone](https://mohammadyusif.github.io/llm-application-engineering/capstone.html). Course attribution: [SDAIA Academy](https://github.com/SDAIAAcademy). This repository presents a training project for a fictional store.
