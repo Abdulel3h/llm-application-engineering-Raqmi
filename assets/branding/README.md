@@ -1,32 +1,18 @@
-# Raqmi branding assets
+# llm-application-engineering-Raqmi branding
 
-Repository-native presentation assets for the product case study. These files are visual documentation, not application components or evaluation evidence.
+Original repository-native presentation assets, using the [shared personal brand system](https://github.com/Abdulel3h/Abdulel3h/tree/main/assets/branding).
 
-## Image reference map
+| Asset | Use |
+|---|---|
+| [cover.svg](cover.svg) | Editable 1280 × 640 project cover |
+| [social-preview.png](social-preview.png) | 1280 × 640 PNG for GitHub Settings → General → Social preview |
+| [hero.svg](hero.svg) | Compact README hero, readable on mobile |
+| [authorization.svg](authorization.svg) | Explanatory branching authorization boundary |
 
-| Asset | Used by | Purpose / source |
-|---|---|---|
-| [hero.svg](hero.svg) | Root `README.md`, introductory image | Original editable SVG: navy/teal banner, R monogram and product promise |
-| Shields.io badges | Root `README.md`, badge row | External presentation labels for language, artifact and evidence type; not CI status or measured metrics |
-| Mermaid architecture | Root `README.md`, architecture section | Text-based diagram rendered by GitHub; no separate image dependency |
+The cover presents the project category and workflow. It is not an application screenshot, live dashboard or evaluation result. Existing screenshots and execution evidence retain their original files.
 
-No existing image assets were present at the time of this presentation update. No screenshots, provider logos or third-party brand assets are implied by the hero. All local image references use relative paths; the SVG has no scripts, external fonts, remote resources or embedded raster images.
+Colors: navy `#080F1D`, panel `#101E31`, text `#F4F8FF`, secondary `#B3C4D7`, cyan `#69DFFF`. SVGs use system fonts, accessible titles/descriptions and local vector shapes. There are no remote fonts, scripts or trackers. Meaningful image descriptions live in the README as well.
 
-## Visual conventions
+Edit the SVG directly and render a fresh PNG at 1280 × 640. Keep the [profile cover copy](https://github.com/Abdulel3h/Abdulel3h/tree/main/assets/projects) synchronized. The source contains no benchmark values, so evidence documents remain the source of evaluation claims.
 
-- Background: `#0B1220`; secondary surface: `#112C36`.
-- Accent: `#5EEAD4`; primary text: `#F8FAFC`; supporting text: `#B8C9D6`.
-- Typography: system sans-serif (`Arial`, `Helvetica`, `sans-serif`).
-- Keep the hero free of evaluation numbers, so the notebook and linked evidence remain the source for metrics.
-- Keep readable alt text in the root README; the SVG also includes a title and description.
-- Add future presentation images here with descriptive filenames and update this reference map. Keep execution evidence in its existing location.
-
-## Suggested GitHub About metadata
-
-These values are prepared for repository settings if the connected GitHub interface supports metadata updates; this document does not imply they have been applied.
-
-**Description:** Arabic-first retail support AI case study: grounded answers, native tool calling, authorization outside the LLM, guardrails, and captured DeepSeek/ALLaM evaluations.
-
-**Website:** https://abdulelah.de
-
-**Topics:** `llm-application-engineering`, `arabic-nlp`, `retail-support`, `tool-calling`, `authorization`, `guardrails`, `structured-outputs`, `llm-evaluation`, `deepseek`, `allam`, `vllm`, `pydantic`, `google-colab`.
+Social preview upload is a manual step; creating this image does not configure the repository setting. See [exact descriptions, topics and upload map](https://github.com/Abdulel3h/Abdulel3h/blob/main/docs/github-settings.md).

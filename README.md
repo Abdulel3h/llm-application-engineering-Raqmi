@@ -7,11 +7,7 @@
 <p align="center"><strong>From a customer question to a verified answer—or an authorized action.</strong><br>
 An Arabic-first product engineering case study for a fictional Saudi store.</p>
 
-<p align="center">
-  <img src="https://img.shields.io/badge/languages-AR%20%2F%20EN-0F766E?style=flat-square" alt="Arabic and English">
-  <img src="https://img.shields.io/badge/artifact-executed%20Colab-334155?style=flat-square" alt="Executed Colab notebook">
-  <img src="https://img.shields.io/badge/evidence-LIVE%20%2B%20offline-334155?style=flat-square" alt="Live and offline evidence, reported separately">
-</p>
+<p align="center">Arabic / English · Executed notebook · Captured LIVE + offline evidence</p>
 
 <p align="center">
   <a href="Raqmi_Capstone.ipynb">Explore the notebook</a> ·
@@ -24,9 +20,13 @@ An Arabic-first product engineering case study for a fictional Saudi store.</p>
 
 Built by **Abdulelah Alkhathami** for **LLM Application Engineering · SDAIA Academy**, programme **SDA-AIE-213**, cohort **06–09 September 2026**, **Track D — Retail Order Support**.
 
-## Problem → Solution
+## Problem
 
 Retail support combines factual questions with account-sensitive actions. Customers need a clear answer in their language; support teams need the answer to reflect store policy and the action to respect account ownership.
+
+## Solution
+
+Raqmi connects grounded bilingual answers to bounded order, return and escalation workflows. Application code controls what each session can read or change.
 
 | Customer problem | Raqmi's solution | Implemented boundary |
 |---|---|---|
@@ -37,6 +37,10 @@ Retail support combines factual questions with account-sensitive actions. Custom
 | “I need someone to help.” | Open an escalation case | A terminal tool ends the workflow |
 
 **Scope:** a notebook-based capstone with fictional, in-memory catalogue, customer, order and return data. Escalation creates a local case; it does not contact a real support desk.
+
+## Why this is more than a chatbot
+
+An answer is only one possible outcome. Raqmi validates structured return requests, checks ownership outside the model, executes bounded tools and produces an inspectable result or refusal. Its notebook exposes the decisions and failures behind the response.
 
 ## How it works
 
@@ -77,7 +81,7 @@ flowchart TD
 | Reliability | `ResilientClient` retry/fallback, verified with scripted 429 and outage drills |
 | Evaluation | Golden Set, failed-case reporter, structured-output corpus, judge calibration and deterministic regression gate |
 
-### Native tool calling + authorization outside the LLM
+## Native tool calling
 
 The native path normalizes the provider envelope, checks the tool whitelist, validates strict Pydantic arguments, canonicalizes product identity, then applies authorization before execution. Provider metadata such as `index` is tolerated in the envelope; unknown argument fields remain forbidden.
 
@@ -87,11 +91,15 @@ The native path normalizes the provider envelope, checks the tool whitelist, val
 | `create_return()` | Strict fields, owned order, catalogue item membership and application consent all pass | Application mints the return ID; canonical identity makes retries idempotent |
 | `escalate_to_human()` | Terminal escalation is requested | Create a local case and end the loop |
 
+## Authorization outside the LLM
+
+![Model proposals pass strict validation and application authorization. Denied calls do not execute; allowed calls execute and log results.](assets/branding/authorization.svg)
+
 The model cannot supply session identity, grant itself consent or decide ownership. Repeated call IDs, unknown tools, malformed arguments and calls beyond the loop limits are refused. **Even if an injection passes the guards and causes a sensitive tool request, the application still checks authorization.**
 
 The captured live cross-user lookup demonstrates this boundary: DeepSeek requested order `5521`; the application returned `authorization_denied` and exposed no other customer's data. [Inspect the protocol and evidence →](TOOL_CALLING.md)
 
-### Guardrails
+## Guardrails
 
 | Stage | Protection |
 |---|---|
@@ -103,7 +111,7 @@ The captured live cross-user lookup demonstrates this boundary: DeepSeek request
 
 **Offline, deterministic evidence:** **32/32 attacks blocked**, **0/32 legitimate requests blocked**, and **0 of 56 Golden Set answers changed** by the five-stage pipeline. These corpus results do not establish universal attack resistance or a live-provider guardrail benchmark. [Guard definitions and limits →](GUARDRAILS.md)
 
-### Structured outputs
+## Structured outputs
 
 A `ReturnRequest` must satisfy schema, evidence and ownership checks. Bounded model retry/repair is followed by safe application repair or escalation. Repair may fill a missing product only when the owned order contains exactly one item; it cannot invent an order, owner or unsupported reason.
 
@@ -157,6 +165,10 @@ Open notebook **§18** for the captured four-part demo, then **Native Tool Calli
 | Native lookup → denial → return | `tool_calls`, validation, authorization decisions and `role: tool` messages | Captured LIVE DeepSeek transcripts |
 
 The four-part demo reports **PASS**. Read the application decision trace alongside the model text: a proposed tool call is not proof that a transaction executed.
+
+## Technical evidence
+
+Start with the [executed notebook](Raqmi_Capstone.ipynb), inspect the [native tool module](raqmi_tool_calling.py), then trace each claim through the [requirement-to-evidence map](RUBRIC_MAP.md). [Source provenance](SOURCE_PROVENANCE.md) identifies the captured run; [tests](tests/) cover application behavior. The presentation diagrams explain the design and are not execution evidence.
 
 ## Business value
 
@@ -215,7 +227,7 @@ python scripts/scan_secrets.py
 
 The recorded local verification reports **240 passing tests**. The validator executes all **47 code cells offline**, blocks network/process operations and verifies that captured notebook evidence remains unchanged. Local checks do not re-run DeepSeek, ALLaM or a GPU.
 
-## Explore the evidence
+## Documentation
 
 | Resource | Purpose |
 |---|---|

@@ -1,30 +1,5 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1440" height="560" viewBox="0 0 1440 560" fill="none" role="img" aria-labelledby="title description">
-  <title id="title">Raqmi — Retail support that knows when to act.</title>
-  <desc id="description">A dark navy and teal editorial banner for an Arabic-first retail support case study. Arabic-first answers, application-authorized actions, inspectable evidence. Decorative R monogram on the right.</desc>
-  <defs>
-    <linearGradient id="background" x1="0" y1="0" x2="1440" y2="560" gradientUnits="userSpaceOnUse">
-      <stop stop-color="#0B1220"/><stop offset="1" stop-color="#112C36"/>
-    </linearGradient>
-    <linearGradient id="accent" x1="1050" y1="160" x2="1280" y2="400" gradientUnits="userSpaceOnUse">
-      <stop stop-color="#99F6E4"/><stop offset="1" stop-color="#2DD4BF"/>
-    </linearGradient>
-  </defs>
-  <rect width="1440" height="560" rx="28" fill="url(#background)"/>
-  <path d="M960 0V560M1440 112H960M1440 448H960" stroke="#31505C" stroke-opacity="0.45"/>
-  <circle cx="1190" cy="280" r="188" stroke="#31505C"/>
-  <circle cx="1190" cy="280" r="154" stroke="#31505C" stroke-dasharray="3 12"/>
-  <rect x="1042" y="132" width="296" height="296" rx="72" fill="#102830" stroke="#3B696C"/>
-  <path d="M1114 370V190H1194C1232 190 1254 210 1254 240C1254 269 1234 286 1206 289L1264 370H1220L1165 292H1154V370H1114ZM1154 224V259H1190C1206 259 1215 253 1215 241C1215 230 1206 224 1190 224H1154Z" fill="url(#accent)"/>
-  <circle cx="1338" cy="132" r="8" fill="#5EEAD4"/>
-  <g font-family="Arial, Helvetica, sans-serif">
-    <text x="72" y="80" fill="#5EEAD4" font-size="18" font-weight="700" letter-spacing="4">RAQMI / PRODUCT CASE STUDY</text>
-    <text x="68" y="196" fill="#F8FAFC" font-size="64" font-weight="700" letter-spacing="-2">Retail support that</text>
-    <text x="68" y="274" fill="#F8FAFC" font-size="64" font-weight="700" letter-spacing="-2">knows when to act.</text>
-    <text x="72" y="342" fill="#B8C9D6" font-size="24">Arabic-first answers. Application-authorized actions.</text>
-    <text x="72" y="380" fill="#B8C9D6" font-size="24">Inspectable evidence.</text>
-    <path d="M72 438H878" stroke="#31505C"/>
-    <text x="72" y="486" fill="#5EEAD4" font-size="16" font-weight="700" letter-spacing="2">GROUND ANSWERS</text>
-    <text x="355" y="486" fill="#5EEAD4" font-size="16" font-weight="700" letter-spacing="2">AUTHORIZE ACTIONS</text>
-    <text x="666" y="486" fill="#5EEAD4" font-size="16" font-weight="700" letter-spacing="2">SHOW EVIDENCE</text>
-  </g>
-</svg>
+<svg xmlns="http://www.w3.org/2000/svg" width="800" height="490" viewBox="0 0 800 490" role="img" aria-labelledby="title desc">
+<title id="title">Raqmi — Retail support that knows when to act</title><desc id="desc">Arabic-first answers. Application-authorized actions. Notebook case study with captured evaluation evidence.</desc>
+<defs><radialGradient id="glow" cx="90%" cy="0%" r="90%"><stop stop-color="#14364D"/><stop offset="1" stop-color="#080F1D"/></radialGradient><pattern id="grid" width="48" height="48" patternUnits="userSpaceOnUse"><path d="M48 0H0V48" fill="none" stroke="#A5D9FF" stroke-opacity=".045"/></pattern></defs>
+<rect width="800" height="490" rx="28" fill="url(#glow)"/><rect width="800" height="490" rx="28" fill="url(#grid)"/><rect x="1" y="1" width="798" height="488" rx="27" fill="none" stroke="#263A50"/>
+<g font-family="Arial, Helvetica, sans-serif"><text x="48" y="65" fill="#69DFFF" font-size="26" font-weight="600" >RAQMI / BILINGUAL AI RETAIL SUPPORT</text><text x="48" y="149" fill="#F4F8FF" font-size="54" font-weight="700" >Retail support that</text><text x="48" y="214" fill="#F4F8FF" font-size="54" font-weight="700" >knows when to act.</text><text x="48" y="276" fill="#B3C4D7" font-size="34" font-weight="400" >Arabic-first answers.</text><text x="48" y="321" fill="#B3C4D7" font-size="34" font-weight="400" >Application-authorized actions.</text><rect x="48" y="367" width="704" height="77" rx="18" fill="#101E31" stroke="#263A50"/><text x="72" y="416" fill="#69DFFF" font-size="36" font-weight="600" >Request → Verify → Act</text></g></svg>
