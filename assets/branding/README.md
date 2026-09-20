@@ -1,18 +1,46 @@
-# llm-application-engineering-Raqmi branding
+# Raqmi branding
 
-Original repository-native presentation assets, using the [shared personal brand system](https://github.com/Abdulel3h/Abdulel3h/tree/main/assets/branding).
+Part of one identity system shared across [Abdulelah Alkhathami's public
+repositories](https://github.com/Abdulel3h). The canonical rules - palette,
+material, motion, accessibility and the prohibited patterns - live in
+[the brand system](https://github.com/Abdulel3h/Abdulel3h/blob/main/docs/github-brand-system.md).
+
+## Source of truth
+
+`tools/build_brand_assets.py` generates every file below. Never hand-edit the
+generated SVGs; edit the generator and regenerate:
+
+```
+python3 tools/build_brand_assets.py
+```
+
+It is dependency-free and deterministic: two runs produce byte-identical files.
 
 | Asset | Use |
 |---|---|
-| [cover.svg](cover.svg) | Editable 1280 × 640 project cover |
-| [social-preview.png](social-preview.png) | 1280 × 640 PNG for GitHub Settings → General → Social preview |
-| [hero.svg](hero.svg) | Compact README hero, readable on mobile |
-| [authorization.svg](authorization.svg) | Explanatory branching authorization boundary |
+| `hero.svg` | Wide README hero, 1200 x 360 |
+| `hero-mobile.svg` | Portrait README hero for viewports at or below 600px |
+| `cover.svg` | Editorial cover, 1280 x 640 |
+| `social-preview.svg` | Editable master for the social card |
+| `social-preview.png` | 1280 x 640 upload for Settings -> General -> Social preview |
+| `authorization.svg` | The boundary diagram used in the README |
 
-The cover presents the project category and workflow. It is not an application screenshot, live dashboard or evaluation result. Existing screenshots and execution evidence retain their original files.
+## This project's sculpture
 
-Colors: navy `#080F1D`, panel `#101E31`, text `#F4F8FF`, secondary `#B3C4D7`, cyan `#69DFFF`. SVGs use system fonts, accessible titles/descriptions and local vector shapes. There are no remote fonts, scripts or trackers. Meaningful image descriptions live in the README as well.
+A luminous payload waits outside an arched glass threshold until the application authorizes it to cross. The boundary is the subject; the payload only moves once the threshold ignites.
 
-Edit the SVG directly and render a fresh PNG at 1280 × 640. Keep the [profile cover copy](https://github.com/Abdulel3h/Abdulel3h/tree/main/assets/projects) synchronized. The source contains no benchmark values, so evidence documents remain the source of evaluation claims.
+Every repository shares the material, lighting and palette; each keeps its own
+silhouette, so the account reads as one system without the projects looking
+alike.
 
-Social preview upload is a manual step; creating this image does not configure the repository setting. See [exact descriptions, topics and upload map](https://github.com/Abdulel3h/Abdulel3h/blob/main/docs/github-settings.md).
+## Constraints
+
+No scripts, no event handlers, no `foreignObject`, no remote images, no remote
+fonts, no tracking. System fonts only. Every SVG carries `<title>` and `<desc>`,
+every README image carries alternative text, and `prefers-reduced-motion`
+switches the motion off while leaving a complete composition behind.
+
+## Social preview upload
+
+Creating the PNG does not configure the repository setting. Upload it at
+**Settings -> General -> Social preview -> Edit -> Upload an image**.

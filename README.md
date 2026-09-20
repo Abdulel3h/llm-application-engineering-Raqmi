@@ -1,6 +1,7 @@
-<p align="center">
-  <img src="assets/branding/hero.svg" alt="Raqmi — Retail support that knows when to act. Arabic-first answers. Application-authorized actions. Inspectable evidence." width="100%">
-</p>
+<picture>
+  <source media="(max-width: 600px)" srcset="assets/branding/hero-mobile.svg">
+  <img src="assets/branding/hero.svg" width="100%" alt="Raqmi — tool use with a boundary. Native tool calling, authorization outside the model, captured evaluation.">
+</picture>
 
 <h1 align="center">Raqmi · Bilingual AI Retail Support</h1>
 
@@ -8,6 +9,8 @@
 An Arabic-first product engineering case study for a fictional Saudi store.</p>
 
 <p align="center">Arabic / English · Executed notebook · Captured LIVE + offline evidence</p>
+
+<p align="center"><strong>Status: case study with captured evaluation.</strong> A notebook-based capstone over fictional in-memory data — not a deployed product.</p>
 
 <p align="center">
   <a href="Raqmi_Capstone.ipynb">Explore the notebook</a> ·
